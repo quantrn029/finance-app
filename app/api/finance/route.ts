@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
-import { startOfDay, endOfDay, subMonths, format, eachDayOfInterval, isSameDay, startOfMonth, endOfMonth, subDays } from "date-fns"
+import { startOfDay, endOfDay, format, eachDayOfInterval, isSameDay } from "date-fns"
+
+export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request) {
     try {
@@ -15,195 +17,173 @@ export async function GET(request: Request) {
         const startDate = startOfDay(new Date(from))
         const endDate = endOfDay(new Date(to))
 
-        // 1. Fetch Orders
-        const orders = await prisma.order.findMany({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-                status: { not: "Cancelled" } // Exclude cancelled orders
-            },
-        })
-
-        // 2. Fetch Expenses
-        const expenses = await prisma.expense.findMany({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-            },
-        })
-
-        // --- CALCULATION LOGIC ---
-
-        // A. Summary Metrics
-        const totalRevenue = orders.reduce((sum, order) => sum + order.revenue, 0)
-
-        // Platform Fees (from Orders)
-        const totalPlatformFees = orders.reduce((sum, order) => sum + order.platformFee, 0)
-
-        // External Expenses (from Expense table)
-        const totalExternalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
-
-        const totalExpenses = totalPlatformFees + totalExternalExpenses
-        const netProfit = totalRevenue - totalExpenses
-
-        // Cash Flow (Approximate)
-        // Inflow = Net Payout from Orders
-        const totalInflow = orders.reduce((sum, order) => sum + order.netPayout, 0)
-        // Outflow = External Expenses
-        const totalOutflow = totalExternalExpenses
-        const netCashFlow = totalInflow - totalOutflow
-
-        // B. Timeline (Daily)
-        const days = eachDayOfInterval({ start: startDate, end: endDate })
-        const timeline = days.map(day => {
-            const dayOrders = orders.filter(o => isSameDay(o.date, day))
-            const dayExpenses = expenses.filter(e => isSameDay(e.date, day))
-
-            const dailyInflow = dayOrders.reduce((sum, o) => sum + o.netPayout, 0)
-            const dailyOutflow = dayExpenses.reduce((sum, e) => sum + e.amount, 0)
-            const dailyNet = dailyInflow - dailyOutflow
-
-            return {
-                date: format(day, "dd/MM"),
-                inflow: dailyInflow,
-                outflow: dailyOutflow,
-                net: dailyNet
-            }
-        })
-
-        // C. Waterfall (Breakdown)
-        // Group Expenses by Category
-        const cogs = expenses.filter(e => e.category === "COGS" || e.category === "Materials").reduce((sum, e) => sum + e.amount, 0)
-        const ads = expenses.filter(e => e.category === "Ads").reduce((sum, e) => sum + e.amount, 0)
-        const operating = expenses.filter(e => e.category === "Operating").reduce((sum, e) => sum + e.amount, 0)
-
-        // Detailed Platform Fees
-        // We can break this down further if needed, but for now "Platform Fees" is a big chunk
-
-        const waterfall = [
-            { name: "Doanh thu", value: totalRevenue, type: "positive" },
-            { name: "Giá vốn", value: cogs, type: "negative" },
-            { name: "Phí sàn", value: totalPlatformFees, type: "negative" },
-            { name: "Ads", value: ads, type: "negative" },
-            { name: "Vận hành", value: operating, type: "negative" },
-            { name: "Lợi nhuận", value: netProfit, type: "total" },
-        ]
-
-        // D. MoM Comparison (Previous Period)
-        // Calculate previous period (same duration, shifted back)
+        // Calculate previous period
         const duration = endDate.getTime() - startDate.getTime()
         const prevStartDate = new Date(startDate.getTime() - duration)
         const prevEndDate = new Date(endDate.getTime() - duration)
 
-        const prevOrders = await prisma.order.findMany({
-            where: { date: { gte: prevStartDate, lte: prevEndDate }, status: { not: "Cancelled" } }
-        })
-        const prevExpenses = await prisma.expense.findMany({
-            where: { date: { gte: prevStartDate, lte: prevEndDate } }
-        })
+        // --- 1. PARALLEL DATA FETCHING ---
+        const [
+            // A. Current Period Aggregations
+            currentOrdersAgg,
+            currentExpensesAgg,
+            currentExpensesByCat,
 
-        const prevRevenue = prevOrders.reduce((sum, o) => sum + o.revenue, 0)
-        const prevOrdersCount = prevOrders.length
-        const prevNetPayout = prevOrders.reduce((sum, o) => sum + o.netPayout, 0)
-        const prevPlatformFees = prevOrders.reduce((sum, o) => sum + o.platformFee, 0)
-        const prevExternalExpenses = prevExpenses.reduce((sum, e) => sum + e.amount, 0)
-        const prevTotalExpenses = prevPlatformFees + prevExternalExpenses
-        const prevProfit = prevRevenue - prevTotalExpenses
+            // B. Previous Period Aggregations
+            prevOrdersAgg,
+            prevExpensesAgg,
+            prevExpensesByCat,
 
+            // C. Timeline Data (Lightweight Fetch)
+            timelineOrders,
+            timelineExpenses
+        ] = await Promise.all([
+            // A. Current
+            prisma.order.aggregate({
+                where: { date: { gte: startDate, lte: endDate }, status: { not: "Cancelled" } },
+                _sum: { revenue: true, netPayout: true, platformFee: true },
+                _count: { id: true }
+            }),
+            prisma.expense.aggregate({
+                where: { date: { gte: startDate, lte: endDate } },
+                _sum: { amount: true }
+            }),
+            prisma.expense.groupBy({
+                by: ['category'],
+                where: { date: { gte: startDate, lte: endDate } },
+                _sum: { amount: true }
+            }),
+
+            // B. Previous
+            prisma.order.aggregate({
+                where: { date: { gte: prevStartDate, lte: prevEndDate }, status: { not: "Cancelled" } },
+                _sum: { revenue: true, netPayout: true, platformFee: true },
+                _count: { id: true }
+            }),
+            prisma.expense.aggregate({
+                where: { date: { gte: prevStartDate, lte: prevEndDate } },
+                _sum: { amount: true }
+            }),
+            prisma.expense.groupBy({
+                by: ['category'],
+                where: { date: { gte: prevStartDate, lte: prevEndDate } },
+                _sum: { amount: true }
+            }),
+
+            // C. Timeline (Select only needed fields)
+            prisma.order.findMany({
+                where: { date: { gte: startDate, lte: endDate }, status: { not: "Cancelled" } },
+                select: { date: true, netPayout: true }
+            }),
+            prisma.expense.findMany({
+                where: { date: { gte: startDate, lte: endDate } },
+                select: { date: true, amount: true }
+            })
+        ])
+
+        // --- 2. CALCULATIONS ---
+
+        // Helper for change calculation
         const calculateChange = (current: number, previous: number) => {
             if (previous === 0) return current > 0 ? 100 : 0
             return Math.round(((current - previous) / previous) * 100)
         }
 
-        const comparison = [
-            { metric: "Doanh thu", current: totalRevenue, previous: prevRevenue, change: calculateChange(totalRevenue, prevRevenue) },
-            { metric: "Đơn hàng", current: orders.length, previous: prevOrdersCount, change: calculateChange(orders.length, prevOrdersCount) },
-            { metric: "Thực nhận", current: totalInflow, previous: prevNetPayout, change: calculateChange(totalInflow, prevNetPayout) },
-            { metric: "Chi phí", current: totalExpenses, previous: prevTotalExpenses, change: calculateChange(totalExpenses, prevTotalExpenses) },
-            { metric: "Lợi nhuận", current: netProfit, previous: prevProfit, change: calculateChange(netProfit, prevProfit) },
-        ]
+        // A. Summary Metrics
+        const totalRevenue = currentOrdersAgg._sum.revenue || 0
+        const totalPlatformFees = currentOrdersAgg._sum.platformFee || 0
+        const totalExternalExpenses = currentExpensesAgg._sum.amount || 0
+        const totalExpenses = totalPlatformFees + totalExternalExpenses
+        const netProfit = totalRevenue - totalExpenses
 
-        // E. Insights & Alerts
-        const alerts = []
+        const totalInflow = currentOrdersAgg._sum.netPayout || 0
+        const netCashFlow = totalInflow - totalExternalExpenses
 
+        // Previous Metrics
+        const prevRevenue = prevOrdersAgg._sum.revenue || 0
+        const prevPlatformFees = prevOrdersAgg._sum.platformFee || 0
+        const prevExternalExpenses = prevExpensesAgg._sum.amount || 0
+        const prevTotalExpenses = prevPlatformFees + prevExternalExpenses
+        const prevProfit = prevRevenue - prevTotalExpenses
+        const prevInflow = prevOrdersAgg._sum.netPayout || 0
+        const prevNetCashFlow = prevInflow - prevExternalExpenses
+
+        // Changes
         const revenueChange = calculateChange(totalRevenue, prevRevenue)
         const expenseChange = calculateChange(totalExpenses, prevTotalExpenses)
         const profitChange = calculateChange(netProfit, prevProfit)
-        const prevNetCashFlow = prevNetPayout - prevExternalExpenses
         const netCashChange = calculateChange(netCashFlow, prevNetCashFlow)
 
-        // CIR Alert
-        const cir = totalRevenue > 0 ? (totalExpenses / totalRevenue) * 100 : 0
-        if (cir > 25) {
-            alerts.push({
-                type: 'warning',
-                title: 'Chi phí Ads & Vận hành cao',
-                description: `Tỷ lệ chi phí/doanh thu (CIR) đang là ${cir.toFixed(1)}%, vượt ngưỡng an toàn 25%.`,
-                color: 'text-amber-700 bg-amber-50 border-amber-200'
-            })
+        // B. Timeline Construction
+        const days = eachDayOfInterval({ start: startDate, end: endDate })
+        const timeline = days.map(day => {
+            // Filter in memory (fast because datasets are lightweight and filtered by date range already)
+            const dayInflow = timelineOrders
+                .filter(o => isSameDay(o.date, day))
+                .reduce((sum, o) => sum + (o.netPayout || 0), 0)
+
+            const dayOutflow = timelineExpenses
+                .filter(e => isSameDay(e.date, day))
+                .reduce((sum, e) => sum + (e.amount || 0), 0)
+
+            return {
+                date: format(day, "dd/MM"),
+                inflow: dayInflow,
+                outflow: dayOutflow,
+                net: dayInflow - dayOutflow
+            }
+        })
+
+        // C. Waterfall & P&L Breakdown
+        const getCatSum = (groups: any[], cat: string) =>
+            groups.find(g => g.category === cat)?._sum.amount || 0
+
+        // Handle "Materials" which might be "COGS" or "Materials"
+        const getMaterialsSum = (groups: any[]) => {
+            return groups.reduce((sum, g) => {
+                if (g.category === 'COGS' || g.category === 'Materials') return sum + (g._sum.amount || 0)
+                return sum
+            }, 0)
         }
 
-        // Negative Profit Alert
-        if (netProfit < 0) {
-            alerts.push({
-                type: 'danger',
-                title: 'Lợi nhuận âm',
-                description: 'Tháng này đang lỗ. Hãy kiểm tra lại chi phí quảng cáo và giá vốn.',
-                color: 'text-rose-700 bg-rose-50 border-rose-200'
-            })
-        }
+        const currentCogs = getMaterialsSum(currentExpensesByCat)
+        const currentAds = getCatSum(currentExpensesByCat, 'Ads')
+        const currentOperating = getCatSum(currentExpensesByCat, 'Operating')
+        const currentPlatformExp = getCatSum(currentExpensesByCat, 'Platform') // Expenses categorized as Platform (not fees)
 
-        // Negative Cashflow Alert
-        if (netCashFlow < 0) {
-            alerts.push({
-                type: 'danger',
-                title: 'Dòng tiền âm',
-                description: 'Dòng tiền ra lớn hơn dòng tiền vào. Cẩn trọng rủi ro thanh khoản.',
-                color: 'text-rose-700 bg-rose-50 border-rose-200'
-            })
-        }
+        const prevCogs = getMaterialsSum(prevExpensesByCat)
+        const prevAds = getCatSum(prevExpensesByCat, 'Ads')
+        const prevOperating = getCatSum(prevExpensesByCat, 'Operating')
+        const prevPlatformExp = getCatSum(prevExpensesByCat, 'Platform')
 
-        // Growth Alert (Success)
-        if (revenueChange > 20) {
-            alerts.push({
-                type: 'success',
-                title: 'Tăng trưởng tốt',
-                description: `Doanh thu tăng ${revenueChange.toFixed(1)}% so với kỳ trước.`,
-                color: 'text-emerald-700 bg-emerald-50 border-emerald-200'
-            })
-        }
+        const waterfall = [
+            { name: "Doanh thu", value: totalRevenue, type: "positive" },
+            { name: "Giá vốn", value: currentCogs, type: "negative" },
+            { name: "Phí sàn", value: totalPlatformFees, type: "negative" },
+            { name: "Ads", value: currentAds, type: "negative" },
+            { name: "Vận hành", value: currentOperating, type: "negative" },
+            { name: "Lợi nhuận", value: netProfit, type: "total" },
+        ]
 
-        // --- P&L CALCULATION ---
+        // D. MoM Comparison Table
+        const comparison = [
+            { metric: "Doanh thu", current: totalRevenue, previous: prevRevenue, change: revenueChange },
+            { metric: "Đơn hàng", current: currentOrdersAgg._count.id || 0, previous: prevOrdersAgg._count.id || 0, change: calculateChange(currentOrdersAgg._count.id || 0, prevOrdersAgg._count.id || 0) },
+            { metric: "Thực nhận", current: totalInflow, previous: prevInflow, change: calculateChange(totalInflow, prevInflow) },
+            { metric: "Chi phí", current: totalExpenses, previous: prevTotalExpenses, change: expenseChange },
+            { metric: "Lợi nhuận", current: netProfit, previous: prevProfit, change: profitChange },
+        ]
 
-        // Helper to sum expenses by category
-        const sumExpenses = (exps: any[], category: string) =>
-            exps.filter(e => e.category === category || (category === 'COGS' && e.category === 'Materials')).reduce((sum, e) => sum + e.amount, 0)
-
-        // Current Period Breakdown
-        const currentCogs = sumExpenses(expenses, 'COGS')
-        const currentAds = sumExpenses(expenses, 'Ads')
-        const currentOperating = sumExpenses(expenses, 'Operating')
-        const currentPlatformExpenses = sumExpenses(expenses, 'Platform')
+        // E. P&L Table
         const currentGrossProfit = totalRevenue - currentCogs
-
-        // Previous Period Breakdown
-        const prevCogs = sumExpenses(prevExpenses, 'COGS')
-        const prevAds = sumExpenses(prevExpenses, 'Ads')
-        const prevOperating = sumExpenses(prevExpenses, 'Operating')
-        const prevPlatformExpenses = sumExpenses(prevExpenses, 'Platform')
         const prevGrossProfit = prevRevenue - prevCogs
 
-        // Construct P&L Data
         const pnl = [
             {
                 label: "Doanh thu thuần",
                 current: totalRevenue,
                 previous: prevRevenue,
-                change: calculateChange(totalRevenue, prevRevenue),
+                change: revenueChange,
                 highlight: true
             },
             {
@@ -222,9 +202,9 @@ export async function GET(request: Request) {
             },
             {
                 label: "Chi phí sàn & Phí GD",
-                current: totalPlatformFees + currentPlatformExpenses,
-                previous: prevPlatformFees + prevPlatformExpenses,
-                change: calculateChange(totalPlatformFees + currentPlatformExpenses, prevPlatformFees + prevPlatformExpenses)
+                current: totalPlatformFees + currentPlatformExp,
+                previous: prevPlatformFees + prevPlatformExp,
+                change: calculateChange(totalPlatformFees + currentPlatformExp, prevPlatformFees + prevPlatformExp)
             },
             {
                 label: "Marketing / Ads",
@@ -242,11 +222,48 @@ export async function GET(request: Request) {
                 label: "Lợi nhuận ròng",
                 current: netProfit,
                 previous: prevProfit,
-                change: calculateChange(netProfit, prevProfit),
+                change: profitChange,
                 highlight: true,
                 color: netProfit >= 0 ? "text-emerald-600" : "text-rose-600"
             }
         ]
+
+        // F. Alerts
+        const alerts = []
+        const cir = totalRevenue > 0 ? (totalExpenses / totalRevenue) * 100 : 0
+
+        if (cir > 25) {
+            alerts.push({
+                type: 'warning',
+                title: 'Chi phí Ads & Vận hành cao',
+                description: `Tỷ lệ chi phí/doanh thu (CIR) đang là ${cir.toFixed(1)}%, vượt ngưỡng an toàn 25%.`,
+                color: 'text-amber-700 bg-amber-50 border-amber-200'
+            })
+        }
+        if (netProfit < 0) {
+            alerts.push({
+                type: 'danger',
+                title: 'Lợi nhuận âm',
+                description: 'Tháng này đang lỗ. Hãy kiểm tra lại chi phí quảng cáo và giá vốn.',
+                color: 'text-rose-700 bg-rose-50 border-rose-200'
+            })
+        }
+        if (netCashFlow < 0) {
+            alerts.push({
+                type: 'danger',
+                title: 'Dòng tiền âm',
+                description: 'Dòng tiền ra lớn hơn dòng tiền vào. Cẩn trọng rủi ro thanh khoản.',
+                color: 'text-rose-700 bg-rose-50 border-rose-200'
+            })
+        }
+        if (revenueChange > 20) {
+            alerts.push({
+                type: 'success',
+                title: 'Tăng trưởng tốt',
+                description: `Doanh thu tăng ${revenueChange.toFixed(1)}% so với kỳ trước.`,
+                color: 'text-emerald-700 bg-emerald-50 border-emerald-200'
+            })
+        }
 
         return NextResponse.json({
             summary: {
@@ -258,8 +275,12 @@ export async function GET(request: Request) {
             timeline,
             waterfall,
             comparison,
-            pnl, // New field
+            pnl,
             alerts
+        }, {
+            headers: {
+                'Cache-Control': 's-maxage=60, stale-while-revalidate=300'
+            }
         })
 
     } catch (error) {
