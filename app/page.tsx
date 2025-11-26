@@ -12,7 +12,7 @@ import { AlertsSection, generateAlerts } from "@/components/dashboard/AlertsSect
 import { WeeklyProgress } from "@/components/dashboard/WeeklyProgress"
 
 import { DollarSign, ShoppingCart, Wallet, TrendingUp, Loader2 } from "lucide-react"
-import { getDaysInMonth, differenceInDays, startOfMonth, endOfMonth, subWeeks } from "date-fns"
+import { startOfMonth, endOfMonth } from "date-fns"
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState<TimePeriod>('month')
@@ -68,185 +68,16 @@ export default function DashboardPage() {
         const endDate = range.to.toISOString()
         const query = `?startDate=${startDate}&endDate=${endDate}`
 
-        // Fetch orders and expenses with date filtering
-        // Note: Goals are small enough to fetch all for now, or could be filtered similarly if needed
-        const [ordersRes, expensesRes, goalsRes] = await Promise.all([
-          fetch(`/api/orders${query}`),
-          fetch(`/api/expenses${query}`),
-          fetch('/api/goals')
-        ])
+        // Fetch pre-calculated dashboard data from server
+        const res = await fetch(`/api/dashboard${query}`)
 
-        if (!ordersRes.ok) {
-          const err = await ordersRes.json()
-          throw new Error(err.error || "Failed to fetch orders")
-        }
-        if (!expensesRes.ok) {
-          const err = await expensesRes.json()
-          throw new Error(err.error || "Failed to fetch expenses")
-        }
-        if (!goalsRes.ok) {
-          const err = await goalsRes.json()
-          throw new Error(err.error || "Failed to fetch goals")
+        if (!res.ok) {
+          const err = await res.json()
+          throw new Error(err.error || "Failed to fetch dashboard data")
         }
 
-        const ordersData = await ordersRes.json()
-        const expensesData = await expensesRes.json()
-        const goalsData = await goalsRes.json()
-
-        const orders = ordersData.orders || ordersData || []
-        const expenses = expensesData.expenses || expensesData || []
-        const goals = goalsData.goals || goalsData || []
-
-        // Filter by period
-        const filteredOrders = orders.filter((o: any) => {
-          const orderDate = new Date(o.date)
-          return orderDate >= range.from && orderDate <= range.to
-        })
-
-        const filteredExpenses = expenses.filter((e: any) => {
-          const expenseDate = new Date(e.date)
-          return expenseDate >= range.from && expenseDate <= range.to
-        })
-
-        // Get last week orders for order drop calculation
-        const lastWeekRange = getPeriodRange(period, subWeeks(date, 1))
-        const lastWeekOrders = orders.filter((o: any) => {
-          const orderDate = new Date(o.date)
-          return orderDate >= lastWeekRange.from && orderDate <= lastWeekRange.to
-        })
-
-        // Calculate metrics
-        const revenue = filteredOrders.reduce((sum: number, o: any) => sum + o.revenue, 0)
-        const netPayout = filteredOrders.reduce((sum: number, o: any) => sum + o.netPayout, 0)
-        const platformFees = filteredOrders.reduce((sum: number, o: any) => sum + o.platformFee, 0)
-        const totalExpenses = filteredExpenses.reduce((sum: number, e: any) => sum + e.amount, 0)
-        const materials = filteredExpenses.filter((e: any) => e.type === 'Materials' || e.category === 'Materials').reduce((sum: number, e: any) => sum + e.amount, 0)
-        const adsSpend = filteredExpenses.filter((e: any) => e.type === 'Ads' || e.category === 'Ads').reduce((sum: number, e: any) => sum + e.amount, 0)
-        const operating = totalExpenses - materials - adsSpend
-        const profit = netPayout - totalExpenses
-        const orderCount = filteredOrders.length
-        const aov = orderCount > 0 ? revenue / orderCount : 0
-
-        // Forecasting (only for month period)
-        const daysInMonth = getDaysInMonth(date)
-        const daysPassed = period === 'month' ? Math.min(differenceInDays(new Date(), startOfMonth(date)) + 1, daysInMonth) : daysInMonth
-        const projectedRevenue = (revenue / Math.max(daysPassed, 1)) * daysInMonth
-        const projectedProfit = (profit / Math.max(daysPassed, 1)) * daysInMonth
-
-        // Goals (for current period)
-        let currentPeriodKey = ''
-        if (period === 'month') {
-          currentPeriodKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-        } else if (period === 'year') {
-          currentPeriodKey = `${date.getFullYear()}`
-        }
-        // Note: Quarter logic would need to be added here if the filter supports it, 
-        // but for now let's stick to month/year matching based on the filter.
-
-        const currentGoal = goals.find((g: any) => g.period === currentPeriodKey)
-
-        // Channel metrics
-        const platforms = ['Shopee', 'TikTok', 'Facebook', 'Instagram']
-        const channelMetrics = platforms.map(platform => {
-          const platformOrders = filteredOrders.filter((o: any) => o.platform === platform)
-          const platformRevenue = platformOrders.reduce((sum: number, o: any) => sum + o.revenue, 0)
-          const platformFees = platformOrders.reduce((sum: number, o: any) => sum + o.platformFee, 0)
-          const platformAds = filteredExpenses.filter((e: any) =>
-            (e.type === 'Ads' || e.category === 'Ads') &&
-            e.note?.toLowerCase().includes(platform.toLowerCase())
-          ).reduce((sum: number, e: any) => sum + e.amount, 0)
-
-          return {
-            platform,
-            revenue: platformRevenue,
-            ads: platformAds,
-            fees: platformFees,
-            profit: platformRevenue - platformFees - platformAds,
-            orders: platformOrders.length
-          }
-        }).filter(c => c.orders > 0)
-
-        // Alerts
-        const totalFees = filteredOrders.reduce((sum: number, o: any) => sum + o.platformFee, 0)
-        const cir = revenue > 0 ? ((totalFees + adsSpend) / revenue) * 100 : 0
-        const materialsRatio = revenue > 0 ? (materials / revenue) * 100 : 0
-        const orderDropPercent = lastWeekOrders.length > 0
-          ? ((lastWeekOrders.length - orderCount) / lastWeekOrders.length) * 100
-          : 0
-
-        const alerts = generateAlerts({ cir, materialsRatio, orderDropPercent })
-
-        // Weekly breakdown (for week period)
-        let weeklyData = null
-        if (period === 'week') {
-          // Get monthly goal for the month containing this week
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-          const monthlyGoal = goals.find((g: any) => g.period === monthKey && g.type === 'monthly')
-
-          if (monthlyGoal) {
-            // Calculate number of weeks in this month
-            const weeksInMonth = Math.ceil(getDaysInMonth(date) / 7)
-
-            // Weekly targets (divide monthly goal by weeks)
-            const weeklyRevenueTarget = monthlyGoal.revenueTarget / weeksInMonth
-            const weeklyProfitTarget = monthlyGoal.profitTarget / weeksInMonth
-            const weeklyOrdersTarget = Math.round(monthlyGoal.ordersTarget / weeksInMonth)
-
-            // Calculate progress
-            const revenueProgress = weeklyRevenueTarget > 0 ? (revenue / weeklyRevenueTarget) * 100 : 0
-            const profitProgress = weeklyProfitTarget > 0 ? (profit / weeklyProfitTarget) * 100 : 0
-            const ordersProgress = weeklyOrdersTarget > 0 ? (orderCount / weeklyOrdersTarget) * 100 : 0
-
-            // Determine week index (approximate)
-            const startOfMonthDate = startOfMonth(date)
-            const weekIndex = Math.ceil((date.getDate() + startOfMonthDate.getDay()) / 7)
-
-            weeklyData = [{
-              weekIndex,
-              start: range.from,
-              end: range.to,
-              targets: {
-                revenue: weeklyRevenueTarget,
-                profit: weeklyProfitTarget,
-                orders: weeklyOrdersTarget
-              },
-              actuals: {
-                revenue,
-                profit,
-                orders: orderCount
-              },
-              progress: {
-                revenue: revenueProgress,
-                profit: profitProgress,
-                orders: ordersProgress
-              }
-            }]
-          }
-        }
-
-
-
-        setData({
-          revenue,
-          netPayout,
-          platformFees,
-          totalExpenses,
-          materials,
-          adsSpend,
-          operating,
-          profit,
-          orderCount,
-          aov,
-          projectedRevenue,
-          projectedProfit,
-          daysPassed,
-          daysInMonth,
-          currentGoal,
-          channelMetrics,
-          alerts,
-          weeklyData,
-
-        })
+        const dashboardData = await res.json()
+        setData(dashboardData)
       } catch (error: any) {
         console.error("Failed to fetch dashboard data:", error)
         setError(error.message || "Không thể tải dữ liệu. Vui lòng kiểm tra kết nối Database.")
