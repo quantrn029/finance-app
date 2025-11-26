@@ -1,0 +1,169 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id            String       @id @default(uuid())
+  sku           String?      @unique // Master SKU
+  name          String       @unique // Master product name (standardized internal name)
+  sellingPrice  Float        @default(0) // Standard selling price
+  materialCost  Float        // Cost of raw materials per unit
+  laborCost     Float        // Labor cost per unit
+  description   String?      // Optional product description
+  category      String?      // Product category (e.g., Vòng tay, Dây chuyền)
+  tags          String?      // Comma-separated tags
+  costBreakdown String?      // JSON: { materials: [], labor: { hourly, minutes } }
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  
+  // Relations
+  skus          ProductSKU[] // SKU mappings across platforms
+  orderItems    OrderItem[]  // Link to order items
+}
+
+model ProductSKU {
+  id                  String   @id @default(uuid())
+  productId           String
+  platform            String   // "Shopee" | "TikTok" | "Facebook" | "Instagram"
+  sku                 String   // Platform-specific SKU code
+  platformProductName String   // Original product name on platform
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  product             Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@unique([platform, sku]) // Ensure unique SKU per platform
+}
+
+model OrderItem {
+  id              String   @id @default(uuid())
+  orderId         String
+  productId       String?  // Nullable: product might not be mapped yet
+  sku             String?  // SKU from import file
+  productName     String   // Product name from platform
+  quantity        Int      @default(1)
+  unitPrice       Float    // Price per unit
+  totalRevenue    Float    // quantity * unitPrice
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  order           Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product? @relation(fields: [productId], references: [id])
+}
+
+model Order {
+  id              String      @id @default(uuid())
+  platformOrderId String      @unique // Mã đơn hàng sàn (or custom ID for FB/IG)
+  platform        String      // "Shopee" | "TikTok" | "Facebook" | "Instagram"
+  date            DateTime
+  revenue         Float       // Doanh thu (Người mua trả)
+  platformFee     Float       // Tổng phí sàn (0 for FB/IG)
+  shippingFee     Float       // Phí vận chuyển (Sàn trừ)
+  promotion       Float       @default(0) // Promotion/discount given to customer
+  netPayout       Float       // Thực nhận = Revenue - PlatformFee - ShippingFee - Promotion
+  status          String      // Completed, Returned, Cancelled
+  
+  // Detailed fee breakdown - Shopee
+  serviceFee         Float   @default(0)  // Phí Dịch Vụ (Shopee)
+  paymentFee         Float   @default(0)  // Phí thanh toán
+  fixedFee           Float   @default(0)  // Phí cố định (Shopee only)
+  
+  // Detailed fee breakdown - TikTok
+  transactionFee     Float   @default(0)  // Phí giao dịch
+  commissionFee      Float   @default(0)  // Phí hoa hồng (TikTok Shop commission)
+  orderProcessingFee Float   @default(0)  // Phí xử lý đơn hàng
+  affiliateCommission Float  @default(0)  // Hoa hồng Affiliate
+  adCommission       Float   @default(0)  // Hoa hồng Quảng cáo (Affiliate Shop Ads)
+  flashSaleFee       Float   @default(0)  // Phí Flash Sale (Shopee only)
+  affiliateFee       Float   @default(0)  // Phí hoa hồng Tiếp thị liên kết (Shopee Affiliate)
+  sellerVoucher      Float   @default(0)  // Mã ưu đãi do Người Bán chịu
+  sellerCoinCashback Float   @default(0)  // Mã hoàn xu do Người Bán chịu
+  returnShippingFee  Float   @default(0)  // Phí vận chuyển trả hàng
+  
+  partnerCommission  Float   @default(0)  // Hoa hồng đối tác liên kết (Affiliate Partner)
+  affiliatePartnerShopAdsCommission Float @default(0) // Hoa hồng Đối tác - Quảng cáo cửa hàng
+  otherServiceFees   Float   @default(0)  // Phí dịch vụ khác (Bonus cashback, LIVE Specials, Voucher Xtra, EAMS)
+  
+  // Taxes (both platforms)
+  taxVAT             Float   @default(0)  // Thuế GTGT (VAT)
+  taxPIT             Float   @default(0)  // Thuế TNCN (Personal Income Tax)
+  
+  // Other
+  otherFees          Float   @default(0)  // Other miscellaneous fees
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  items           OrderItem[] // Order line items
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  date        DateTime
+  type        String   // Legacy field for backward compatibility
+  category    String   @default("Operating") // "Materials" | "Ads" | "COGS" | "Operating"
+  subcategory String?  // NEW: Subcategory for detailed grouping (e.g., "Vải", "Thuê mặt bằng")
+  amount      Float
+  note        String?
+  description String?
+  isSystem    Boolean  @default(false) // Flag for auto-generated expenses
+  isRecurring Boolean  @default(false) // NEW: Recurring expense flag
+  costType    String   @default("Variable") // NEW: "Fixed" | "Variable"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CashFlow {
+  id        String   @id @default(uuid())
+  date      DateTime
+  type      String   // In, Out
+  amount    Float
+  category  String   // COD, Bank Transfer, Wallet
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Goal {
+  id            String   @id @default(uuid())
+  period        String   // Format: "2025-01" (Month), "2025-Q1" (Quarter), "2025" (Year)
+  type          String   @default("monthly") // "monthly" | "quarterly" | "yearly"
+  revenueTarget Float    // Revenue goal
+  profitTarget  Float    // Profit goal
+  ordersTarget  Int      // Orders goal
+  manuallyEdited Boolean @default(false) // Track if user manually edited this goal
+  parentGoalId  String?  // ID of parent goal (for cascade tracking)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([period, type]) // Ensure unique goal per period and type
+  
+  // Relations
+  details       GoalDetail[]
+}
+
+model GoalDetail {
+  id            String   @id @default(uuid())
+  goalId        String
+  platform      String   // "Shopee" | "TikTok" | "Facebook" | "Instagram"
+  revenueTarget Float    @default(0)
+  profitTarget  Float    @default(0)
+  ordersTarget  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  goal          Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, platform])
+}
