@@ -261,6 +261,10 @@ export async function GET(req: NextRequest) {
             channelMetrics,
             alerts,
             weeklyData: null // Can implement if needed
+        }, {
+            headers: {
+                'Cache-Control': 's-maxage=60, stale-while-revalidate=300'
+            }
         })
 
     } catch (error: any) {

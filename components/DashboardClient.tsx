@@ -13,12 +13,18 @@ import { WeeklyProgress } from "@/components/dashboard/WeeklyProgress"
 import { DollarSign, ShoppingCart, Wallet, TrendingUp, Loader2 } from "lucide-react"
 import { startOfMonth, endOfMonth } from "date-fns"
 import { DateRange } from "react-day-picker"
+import useSWR from 'swr'
 
 interface DashboardClientProps {
     initialData: any
     initialPeriod?: TimePeriod
     initialDateRange?: { from: Date, to: Date }
 }
+
+const fetcher = (url: string) => fetch(url).then(r => {
+    if (!r.ok) throw new Error('Failed to fetch data')
+    return r.json()
+})
 
 export function DashboardClient({ initialData, initialPeriod = 'month', initialDateRange }: DashboardClientProps) {
     const [period, setPeriod] = useState<TimePeriod>(initialPeriod)
@@ -29,9 +35,6 @@ export function DashboardClient({ initialData, initialPeriod = 'month', initialD
             to: endOfMonth(new Date())
         }
     )
-    const [data, setData] = useState<any>(initialData)
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
     const [hasUserInteracted, setHasUserInteracted] = useState(false)
 
     // Load default period from localStorage on mount
@@ -63,45 +66,30 @@ export function DashboardClient({ initialData, initialPeriod = 'month', initialD
         }
     }, [])
 
-    // Only fetch when user changes filters (not on mount)
-    useEffect(() => {
-        if (!hasUserInteracted) return // Don't fetch on initial mount
+    // Calculate query params
+    let range = { from: new Date(), to: new Date() }
+    if (period === 'custom') {
+        range = dateRange
+    } else {
+        range = getPeriodRange(period, date)
+    }
+    const startDate = range.from.toISOString()
+    const endDate = range.to.toISOString()
+    const query = `?startDate=${startDate}&endDate=${endDate}`
 
-        async function fetchData() {
-            try {
-                setLoading(true)
-                setError(null)
-                let range = { from: new Date(), to: new Date() }
-
-                if (period === 'custom') {
-                    range = dateRange
-                } else {
-                    range = getPeriodRange(period, date)
-                }
-
-                const startDate = range.from.toISOString()
-                const endDate = range.to.toISOString()
-                const query = `?startDate=${startDate}&endDate=${endDate}`
-
-                const res = await fetch(`/api/dashboard${query}`)
-
-                if (!res.ok) {
-                    const err = await res.json()
-                    throw new Error(err.error || "Failed to fetch dashboard data")
-                }
-
-                const dashboardData = await res.json()
-                setData(dashboardData)
-            } catch (error: any) {
-                console.error("Failed to fetch dashboard data:", error)
-                setError(error.message || "Không thể tải dữ liệu. Vui lòng kiểm tra kết nối Database.")
-            } finally {
-                setLoading(false)
-            }
+    // Use SWR for fetching
+    const { data, error, isLoading } = useSWR(
+        // Only fetch if user interacted or if we want to revalidate initial data
+        // Actually, we always want SWR to manage the data key
+        `/api/dashboard${query}`,
+        fetcher,
+        {
+            fallbackData: hasUserInteracted ? undefined : initialData, // Use initialData as fallback only initially
+            revalidateOnFocus: false,
+            dedupingInterval: 60000, // 1 minute
+            keepPreviousData: true // Keep showing old data while fetching new
         }
-
-        fetchData()
-    }, [period, date, hasUserInteracted, dateRange])
+    )
 
     // Handle filter changes
     const handlePeriodChange = (newPeriod: TimePeriod) => {
@@ -126,7 +114,7 @@ export function DashboardClient({ initialData, initialPeriod = 'month', initialD
             <div className="p-8 flex items-center justify-center min-h-[400px]">
                 <div className="flex flex-col items-center gap-2 text-red-500">
                     <p className="font-medium">Đã xảy ra lỗi</p>
-                    <p className="text-sm">{error}</p>
+                    <p className="text-sm">{error.message || "Không thể tải dữ liệu"}</p>
                     <button
                         onClick={() => window.location.reload()}
                         className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
@@ -161,12 +149,11 @@ export function DashboardClient({ initialData, initialPeriod = 'month', initialD
                 />
             </div>
 
-            {/* Loading overlay when refetching */}
-            {loading && (
-                <div className="fixed inset-0 bg-black/10 z-50 flex items-center justify-center pointer-events-none">
-                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg flex items-center gap-2">
-                        <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                        <span className="text-sm font-medium">Đang cập nhật...</span>
+            {/* Loading overlay when refetching (SWR handles this, but we can show a subtle indicator) */}
+            {isLoading && hasUserInteracted && (
+                <div className="fixed top-4 right-4 z-50">
+                    <div className="bg-white dark:bg-gray-800 p-2 rounded-full shadow-lg border animate-pulse">
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                     </div>
                 </div>
             )}
