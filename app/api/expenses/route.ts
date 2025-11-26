@@ -4,9 +4,22 @@ import prisma from "@/lib/prisma"
 export const dynamic = 'force-dynamic'
 
 // GET: Fetch all expenses
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
+        const { searchParams } = new URL(req.url)
+        const startDate = searchParams.get('startDate')
+        const endDate = searchParams.get('endDate')
+
+        const where: any = {}
+        if (startDate && endDate) {
+            where.date = {
+                gte: new Date(startDate),
+                lte: new Date(endDate)
+            }
+        }
+
         const expenses = await prisma.expense.findMany({
+            where,
             orderBy: { date: 'desc' }
         })
         return NextResponse.json({ expenses })

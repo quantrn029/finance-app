@@ -63,10 +63,16 @@ export default function DashboardPage() {
           range = getPeriodRange(period, date)
         }
 
-        // Fetch orders and expenses
+        // Format dates for API
+        const startDate = range.from.toISOString()
+        const endDate = range.to.toISOString()
+        const query = `?startDate=${startDate}&endDate=${endDate}`
+
+        // Fetch orders and expenses with date filtering
+        // Note: Goals are small enough to fetch all for now, or could be filtered similarly if needed
         const [ordersRes, expensesRes, goalsRes] = await Promise.all([
-          fetch('/api/orders'),
-          fetch('/api/expenses'),
+          fetch(`/api/orders${query}`),
+          fetch(`/api/expenses${query}`),
           fetch('/api/goals')
         ])
 
