@@ -106,6 +106,8 @@ model Order {
   
   // Relations
   items           OrderItem[] // Order line items
+
+  @@index([date])
 }
 
 model Expense {
@@ -122,6 +124,8 @@ model Expense {
   costType    String   @default("Variable") // NEW: "Fixed" | "Variable"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([date])
 }
 
 model CashFlow {
