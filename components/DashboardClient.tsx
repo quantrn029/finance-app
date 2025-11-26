@@ -12,6 +12,7 @@ import { AlertsSection } from "@/components/dashboard/AlertsSection"
 import { WeeklyProgress } from "@/components/dashboard/WeeklyProgress"
 import { DollarSign, ShoppingCart, Wallet, TrendingUp, Loader2 } from "lucide-react"
 import { startOfMonth, endOfMonth } from "date-fns"
+import { DateRange } from "react-day-picker"
 
 interface DashboardClientProps {
     initialData: any
@@ -113,7 +114,7 @@ export function DashboardClient({ initialData, initialPeriod = 'month', initialD
         setHasUserInteracted(true)
     }
 
-    const handleDateRangeChange = (range: { from?: Date, to?: Date } | undefined) => {
+    const handleDateRangeChange = (range: DateRange | undefined) => {
         if (range?.from && range?.to) {
             setDateRange({ from: range.from, to: range.to })
             setHasUserInteracted(true)

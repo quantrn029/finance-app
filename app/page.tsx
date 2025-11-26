@@ -1,6 +1,9 @@
 import { DashboardClient } from "@/components/DashboardClient"
 import { startOfMonth, endOfMonth } from "date-fns"
 
+// Force dynamic rendering (server-render on each request)
+export const dynamic = 'force-dynamic'
+
 async function getDashboardData(startDate: Date, endDate: Date) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const query = `?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
