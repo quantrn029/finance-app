@@ -11,7 +11,7 @@ import { ChannelBreakdown } from "@/components/dashboard/ChannelBreakdown"
 import { AlertsSection } from "@/components/dashboard/AlertsSection"
 import { WeeklyProgress } from "@/components/dashboard/WeeklyProgress"
 import { DollarSign, ShoppingCart, Wallet, TrendingUp, Loader2 } from "lucide-react"
-import { startOfMonth, endOfMonth } from "date-fns"
+import { startOfMonth, endOfMonth, format } from "date-fns"
 import { DateRange } from "react-day-picker"
 import useSWR from 'swr'
 
@@ -73,8 +73,8 @@ export function DashboardClient({ initialData, initialPeriod = 'month', initialD
     } else {
         range = getPeriodRange(period, date)
     }
-    const startDate = range.from.toISOString()
-    const endDate = range.to.toISOString()
+    const startDate = format(range.from, 'yyyy-MM-dd')
+    const endDate = format(range.to, 'yyyy-MM-dd')
     const query = `?startDate=${startDate}&endDate=${endDate}`
 
     // Use SWR for fetching
