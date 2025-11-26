@@ -30,6 +30,14 @@ export default function OrdersPage() {
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1)
     const [itemsPerPage] = useState(50)
+    const [totalPages, setTotalPages] = useState(1)
+    const [totalOrders, setTotalOrders] = useState(0)
+    const [summaryData, setSummaryData] = useState<{
+        totalRevenue: number
+        totalNet: number
+        totalFees: number
+        totalOrders: number
+    } | undefined>(undefined)
 
     // Column Visibility State
     const [visibleColumns, setVisibleColumns] = useState({
@@ -76,6 +84,13 @@ export default function OrdersPage() {
                 if (dateFrom) queryParams.append('startDate', dateFrom.toISOString())
                 if (dateTo) queryParams.append('endDate', dateTo.toISOString())
 
+                // Pagination & Filters
+                queryParams.append('page', currentPage.toString())
+                queryParams.append('limit', itemsPerPage.toString())
+                if (searchQuery) queryParams.append('search', searchQuery)
+                if (platformFilter !== 'all') queryParams.append('platform', platformFilter)
+                if (abnormalFilter) queryParams.append('abnormal', 'true')
+
                 const res = await fetch(`/api/orders?${queryParams}`)
                 const data = await res.json()
 
@@ -103,6 +118,23 @@ export default function OrdersPage() {
                 })
 
                 setOrders(processedOrders)
+                setFilteredOrders(processedOrders) // For compatibility if other components use filteredOrders
+
+                // Update Pagination Info
+                if (data.pagination) {
+                    setTotalPages(data.pagination.totalPages)
+                    setTotalOrders(data.pagination.total)
+                }
+
+                // Update Summary Data
+                if (data.summary) {
+                    setSummaryData({
+                        totalRevenue: data.summary.totalRevenue,
+                        totalNet: data.summary.totalNet,
+                        totalFees: data.summary.totalFees,
+                        totalOrders: data.pagination.total
+                    })
+                }
             } catch (error) {
                 console.error("Failed to fetch orders:", error)
             } finally {
@@ -113,51 +145,14 @@ export default function OrdersPage() {
         if (dateFrom && dateTo) {
             fetchOrders()
         }
-    }, [dateFrom, dateTo])
+    }, [dateFrom, dateTo, currentPage, searchQuery, platformFilter, abnormalFilter])
 
-    // Filtering Logic
+    // Reset page when filters change
     useEffect(() => {
-        let result = [...orders]
+        setCurrentPage(1)
+    }, [dateFrom, dateTo, searchQuery, platformFilter, abnormalFilter])
 
-        // Date Filter - Handled by API now
-        // if (dateFrom && dateTo) {
-        //     result = result.filter(o => {
-        //         const d = new Date(o.date)
-        //         return d >= startOfDay(dateFrom) && d <= endOfDay(dateTo)
-        //     })
-        // }
-
-        // Search
-        if (searchQuery) {
-            const q = searchQuery.toLowerCase()
-            result = result.filter(o =>
-                o.id.toLowerCase().includes(q) ||
-                (o as any).productNames.toLowerCase().includes(q)
-            )
-        }
-
-        // Platform
-        if (platformFilter !== 'all') {
-            result = result.filter(o => o.platform === platformFilter)
-        }
-
-
-
-        // Abnormal
-        if (abnormalFilter) {
-            result = result.filter(o => o.revenue <= 0 || o.netPayout <= 0)
-        }
-
-        setFilteredOrders(result)
-        setCurrentPage(1) // Reset to first page on filter change
-    }, [orders, dateFrom, dateTo, searchQuery, platformFilter, abnormalFilter])
-
-    // Pagination Logic
-    const indexOfLastItem = currentPage * itemsPerPage
-    const indexOfFirstItem = indexOfLastItem - itemsPerPage
-    const currentOrders = filteredOrders.slice(indexOfFirstItem, indexOfLastItem)
-    const totalPages = Math.ceil(filteredOrders.length / itemsPerPage)
-
+    // Pagination Logic (Server-side now, so just pass through)
     const handlePageChange = (pageNumber: number) => {
         setCurrentPage(pageNumber)
     }
@@ -229,7 +224,7 @@ export default function OrdersPage() {
                 </div>
             </div>
 
-            <OrderSummary orders={filteredOrders} />
+            <OrderSummary orders={filteredOrders} summaryData={summaryData} />
 
             <OrderFilters
                 dateFrom={dateFrom}
@@ -242,17 +237,17 @@ export default function OrdersPage() {
                 setPlatformFilter={setPlatformFilter}
                 abnormalFilter={abnormalFilter}
                 setAbnormalFilter={setAbnormalFilter}
-                filteredCount={filteredOrders.length}
+                filteredCount={totalOrders}
             />
 
             <OrderTable
-                orders={currentOrders}
+                orders={orders} // Use 'orders' directly as it's already paginated
                 currentPage={currentPage}
                 totalPages={totalPages}
                 onPageChange={handlePageChange}
-                totalOrders={filteredOrders.length}
-                indexOfFirstOrder={indexOfFirstItem}
-                indexOfLastOrder={indexOfLastItem}
+                totalOrders={totalOrders}
+                indexOfFirstOrder={(currentPage - 1) * itemsPerPage}
+                indexOfLastOrder={Math.min(currentPage * itemsPerPage, totalOrders)}
                 loading={loading}
                 visibleColumns={visibleColumns}
                 sortField="date" // Default, update if implementing sorting state

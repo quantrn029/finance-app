@@ -44,34 +44,49 @@ export async function GET(req: NextRequest) {
         const startDate = new Date(startDateStr)
         const endDate = new Date(endDateStr)
 
-        // 1. Fetch Orders (Lightweight: only needed fields)
-        const orders = await prisma.order.findMany({
+        // 1. Aggregations (Database-level calculations)
+        const orderAggregations = await prisma.order.aggregate({
             where: {
                 date: {
                     gte: startDate,
                     lte: endDate
                 }
             },
-            select: {
+            _sum: {
                 revenue: true,
                 netPayout: true,
-                platformFee: true,
-                platform: true,
-                date: true,
-                // Include other fee fields if needed for detailed breakdown, 
-                // but for main dashboard summary, platformFee is usually the sum.
-                // If platformFee in DB is pre-calculated sum, we are good.
-                // Based on schema, platformFee is "Tổng phí sàn".
+                platformFee: true
+            },
+            _count: {
+                id: true
             }
         })
 
-        // 2. Fetch Expenses
-        const expenses = await prisma.expense.findMany({
+        const expenseAggregations = await prisma.expense.aggregate({
             where: {
                 date: {
                     gte: startDate,
                     lte: endDate
                 }
+            },
+            _sum: {
+                amount: true
+            }
+        })
+
+        // Detailed expense breakdown (Materials vs Ads)
+        // We still need to group by type/category. 
+        // Prisma groupBy is perfect for this.
+        const expenseByCategory = await prisma.expense.groupBy({
+            by: ['type', 'category'],
+            where: {
+                date: {
+                    gte: startDate,
+                    lte: endDate
+                }
+            },
+            _sum: {
+                amount: true
             }
         })
 
@@ -116,22 +131,28 @@ export async function GET(req: NextRequest) {
         // For now, let's send 0 for orderDropPercent to save time, unless we want to perfect it.
         // Let's stick to 0 to prioritize speed.
 
-        // 5. Calculate Metrics
-        const revenue = orders.reduce((sum, o) => sum + o.revenue, 0)
-        const netPayout = orders.reduce((sum, o) => sum + o.netPayout, 0)
-        const platformFees = orders.reduce((sum, o) => sum + o.platformFee, 0)
+        // 5. Calculate Metrics from Aggregations
+        const revenue = orderAggregations._sum.revenue || 0
+        const netPayout = orderAggregations._sum.netPayout || 0
+        const platformFees = orderAggregations._sum.platformFee || 0
+        const orderCount = orderAggregations._count.id || 0
 
-        const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0)
-        const materials = expenses
-            .filter(e => e.type === 'Materials' || e.category === 'Materials')
-            .reduce((sum, e) => sum + e.amount, 0)
-        const adsSpend = expenses
-            .filter(e => e.type === 'Ads' || e.category === 'Ads')
-            .reduce((sum, e) => sum + e.amount, 0)
+        const totalExpenses = expenseAggregations._sum.amount || 0
+
+        let materials = 0
+        let adsSpend = 0
+
+        expenseByCategory.forEach(group => {
+            const amount = group._sum.amount || 0
+            if (group.type === 'Materials' || group.category === 'Materials') {
+                materials += amount
+            } else if (group.type === 'Ads' || group.category === 'Ads') {
+                adsSpend += amount
+            }
+        })
+
         const operating = totalExpenses - materials - adsSpend
-
         const profit = netPayout - totalExpenses
-        const orderCount = orders.length
         const aov = orderCount > 0 ? revenue / orderCount : 0
 
         // 6. Forecasting
@@ -145,14 +166,55 @@ export async function GET(req: NextRequest) {
         const projectedRevenue = (revenue / Math.max(daysPassed, 1)) * daysInMonth
         const projectedProfit = (profit / Math.max(daysPassed, 1)) * daysInMonth
 
-        // 7. Channel Metrics
+        // 7. Channel Metrics (Optimized with groupBy)
+        const channelStats = await prisma.order.groupBy({
+            by: ['platform'],
+            where: {
+                date: {
+                    gte: startDate,
+                    lte: endDate
+                }
+            },
+            _sum: {
+                revenue: true,
+                platformFee: true
+            },
+            _count: {
+                id: true
+            }
+        })
+
+        // We also need Ads spend per platform. 
+        // Assuming Ads expenses have 'note' containing platform name or we can't easily group by platform if it's in 'note'.
+        // If 'subcategory' or 'note' stores platform, we can try.
+        // For now, let's fetch Ads expenses separately if we need text search, OR just fetch all Ads expenses (usually small number compared to orders).
+        // Let's fetch ONLY Ads expenses to keep it light.
+        const adsExpenses = await prisma.expense.findMany({
+            where: {
+                date: {
+                    gte: startDate,
+                    lte: endDate
+                },
+                OR: [
+                    { type: 'Ads' },
+                    { category: 'Ads' }
+                ]
+            },
+            select: {
+                amount: true,
+                note: true
+            }
+        })
+
         const platforms = ['Shopee', 'TikTok', 'Facebook', 'Instagram']
         const channelMetrics = platforms.map(platform => {
-            const platformOrders = orders.filter(o => o.platform === platform)
-            const platformRevenue = platformOrders.reduce((sum, o) => sum + o.revenue, 0)
-            const platformFees = platformOrders.reduce((sum, o) => sum + o.platformFee, 0)
-            const platformAds = expenses
-                .filter(e => (e.type === 'Ads' || e.category === 'Ads') && e.note?.toLowerCase().includes(platform.toLowerCase()))
+            const stats = channelStats.find(s => s.platform === platform)
+            const platformRevenue = stats?._sum.revenue || 0
+            const platformFees = stats?._sum.platformFee || 0
+            const orderCount = stats?._count.id || 0
+
+            const platformAds = adsExpenses
+                .filter(e => e.note?.toLowerCase().includes(platform.toLowerCase()))
                 .reduce((sum, e) => sum + e.amount, 0)
 
             return {
@@ -161,7 +223,7 @@ export async function GET(req: NextRequest) {
                 ads: platformAds,
                 fees: platformFees,
                 profit: platformRevenue - platformFees - platformAds,
-                orders: platformOrders.length
+                orders: orderCount
             }
         }).filter(c => c.orders > 0)
 
