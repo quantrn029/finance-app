@@ -68,11 +68,13 @@ export default function GoalsPage() {
         const fetchGoals = async () => {
             try {
                 const res = await fetch('/api/goals')
+                if (!res.ok) throw new Error("Failed to fetch goals")
                 const data = await res.json()
-                const fetchedGoals = data.goals as Goal[]
+                const fetchedGoals = Array.isArray(data.goals) ? data.goals : []
                 setGoals(fetchedGoals)
             } catch (err) {
-                console.error(err)
+                console.error("Error fetching goals:", err)
+                setGoals([])
             }
         }
         fetchGoals()
