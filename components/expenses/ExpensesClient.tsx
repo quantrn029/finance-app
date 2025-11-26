@@ -98,11 +98,11 @@ export function ExpensesClient({ initialData, initialDateRange }: ExpensesClient
 
     // Fetch Data (Current & Previous)
     const queryCurrent = dateRange?.from && dateRange?.to
-        ? `/api/expenses?startDate=${dateRange.from.toISOString()}&endDate=${dateRange.to.toISOString()}`
+        ? `/api/expenses?startDate=${format(dateRange.from, 'yyyy-MM-dd')}&endDate=${format(dateRange.to, 'yyyy-MM-dd')}`
         : null
 
     const queryPrevious = previousPeriod.from && previousPeriod.to
-        ? `/api/expenses?startDate=${previousPeriod.from.toISOString()}&endDate=${previousPeriod.to.toISOString()}`
+        ? `/api/expenses?startDate=${format(previousPeriod.from, 'yyyy-MM-dd')}&endDate=${format(previousPeriod.to, 'yyyy-MM-dd')}`
         : null
 
     const { data: currentData, mutate: mutateCurrent } = useSWR(
@@ -351,9 +351,9 @@ export function ExpensesClient({ initialData, initialDateRange }: ExpensesClient
                                         </td>
                                         <td className="px-4 py-3">
                                             <span className={`px-2 py-1 rounded text-xs font-medium ${expense.category === 'Platform' ? 'bg-red-100 text-red-800' :
-                                                    expense.category === 'Ads' ? 'bg-purple-100 text-purple-800' :
-                                                        expense.category === 'Materials' ? 'bg-orange-100 text-orange-800' :
-                                                            'bg-gray-100 text-gray-800'
+                                                expense.category === 'Ads' ? 'bg-purple-100 text-purple-800' :
+                                                    expense.category === 'Materials' ? 'bg-orange-100 text-orange-800' :
+                                                        'bg-gray-100 text-gray-800'
                                                 }`}>
                                                 {expense.category}
                                             </span>

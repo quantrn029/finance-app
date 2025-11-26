@@ -8,7 +8,7 @@ import { MoMComparison } from "@/components/finance/MoMComparison"
 import { InsightsAlerts } from "@/components/finance/InsightsAlerts"
 import { TimePeriodFilter, getPeriodRange } from "@/components/TimePeriodFilter"
 import { DateRange } from "react-day-picker"
-import { startOfMonth, endOfMonth } from "date-fns"
+import { startOfMonth, endOfMonth, format } from "date-fns"
 import { useRouter } from "next/navigation"
 import { OnboardingTour } from "@/components/ui/tour"
 import { NumberFormatterProvider } from "@/components/ui/number-formatter"
@@ -74,8 +74,8 @@ export function FinanceDashboardClient({ initialData, initialPeriod = 'this_mont
     // The TimePeriodFilter component updates dateRange when period changes.
     // So we can rely on dateRange.
     if (dateRange?.from && dateRange?.to) {
-        queryParams.append('from', dateRange.from.toISOString())
-        queryParams.append('to', dateRange.to.toISOString())
+        queryParams.append('from', format(dateRange.from, 'yyyy-MM-dd'))
+        queryParams.append('to', format(dateRange.to, 'yyyy-MM-dd'))
     }
 
     const { data, error, isLoading } = useSWR(
