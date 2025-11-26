@@ -23,6 +23,7 @@ export default function DashboardPage() {
   })
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const savedPeriod = localStorage.getItem("defaultTimePeriod")
@@ -53,6 +54,7 @@ export default function DashboardPage() {
     async function fetchData() {
       try {
         setLoading(true)
+        setError(null)
         let range = { from: new Date(), to: new Date() }
 
         if (period === 'custom') {
@@ -226,8 +228,9 @@ export default function DashboardPage() {
           weeklyData,
 
         })
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to fetch dashboard data:", error)
+        setError("Không thể tải dữ liệu. Vui lòng kiểm tra kết nối Database.")
       } finally {
         setLoading(false)
       }
@@ -236,7 +239,7 @@ export default function DashboardPage() {
     fetchData()
   }, [period, date])
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="p-8 flex items-center justify-center min-h-[400px]">
         <div className="flex flex-col items-center gap-2">
@@ -246,6 +249,25 @@ export default function DashboardPage() {
       </div>
     )
   }
+
+  if (error) {
+    return (
+      <div className="p-8 flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-2 text-red-500">
+          <p className="font-medium">Đã xảy ra lỗi</p>
+          <p className="text-sm">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Thử lại
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!data) return null
 
   const formatCurrency = (val: number) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(val)
