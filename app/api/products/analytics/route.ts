@@ -1,27 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { PrismaClient } from '@prisma/client'
+import prisma from "@/lib/prisma"
+import { startOfMonth, endOfMonth } from 'date-fns'
 
-const prisma = new PrismaClient()
+export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url)
         const period = searchParams.get('period') // e.g., "2025-11" or "all"
 
-        // 1. Fetch all products
-        const products = await prisma.product.findMany({
-            include: {
-                skus: true
-            }
-        })
-
-        // 2. Fetch all order items with order details
-        // Filter by date if period is provided
-        let dateFilter = {}
+        // 1. Determine Date Filter
+        let dateFilter: any = {}
         if (period && period !== 'all') {
             const [year, month] = period.split('-').map(Number)
             const startDate = new Date(year, month - 1, 1)
-            const endDate = new Date(year, month, 0)
+            const endDate = endOfMonth(startDate)
             dateFilter = {
                 date: {
                     gte: startDate,
@@ -30,97 +23,128 @@ export async function GET(req: NextRequest) {
             }
         }
 
-        const orderItems = await prisma.orderItem.findMany({
+        // 2. Fetch Global Metrics (Efficient Aggregation)
+        const [globalStats, expenseStats] = await Promise.all([
+            prisma.order.aggregate({
+                where: {
+                    ...dateFilter,
+                    status: { not: 'Cancelled' }
+                },
+                _sum: {
+                    revenue: true,
+                    platformFee: true, // Note: Ensure this field is populated correctly in DB
+                    // If platformFee is not directly stored, we might need to calc it. 
+                    // Based on previous files, platformFee seems to be a field or calculated.
+                    // Let's assume it's available or we approximate.
+                    // Actually, in `api/expenses`, we summed many fee fields. 
+                    // Doing that here for ALL orders might be complex if we don't have a generated column.
+                    // Let's check schema if needed. For now, assuming 'platformFee' exists or we use a simplified approach.
+                    // Re-checking `api/expenses`: it manually summed fields.
+                    // `Order` model has `platformFee` field? Let's assume yes from `api/products/analytics` existing code:
+                    // `const globalPlatformFees = allOrders.reduce((sum, o) => sum + (o.platformFee || 0), 0)`
+                    // So `platformFee` exists.
+                }
+            }),
+            prisma.expense.aggregate({
+                where: {
+                    ...dateFilter
+                },
+                _sum: { amount: true }
+            })
+        ])
+
+        const totalRevenue = globalStats._sum.revenue || 0
+        const totalPlatformFees = globalStats._sum.platformFee || 0
+        const totalOpEx = expenseStats._sum.amount || 0
+
+        const avgPlatformFeePercent = totalRevenue > 0 ? (totalPlatformFees / totalRevenue) : 0
+        const avgOpExPercent = totalRevenue > 0 ? (totalOpEx / totalRevenue) : 0
+
+        // 3. Fetch Products and SKUs
+        const products = await prisma.product.findMany({
+            include: { skus: true }
+        })
+
+        // 4. Aggregate Order Items (Group By SKU/Name)
+        // We use groupBy to avoid fetching individual items
+        const itemStats = await prisma.orderItem.groupBy({
+            by: ['sku', 'productName'],
             where: {
                 order: {
                     ...dateFilter,
-                    status: { not: 'Cancelled' } // Exclude cancelled orders
+                    status: { not: 'Cancelled' }
                 }
             },
-            include: {
-                order: true
+            _sum: {
+                quantity: true,
+                totalRevenue: true
+            },
+            _count: {
+                orderId: true // Approximate order count (line items count)
             }
         })
 
-        // 3. Fetch all expenses for the period
-        const expenses = await prisma.expense.findMany({
-            where: {
-                ...dateFilter
-            }
+        // 5. Map Stats to Products
+        // Create lookup maps
+        const productMap = new Map<string, any>()
+        const skuToProductId = new Map<string, string>()
+        const nameToProductId = new Map<string, string>()
+
+        products.forEach(p => {
+            productMap.set(p.id, {
+                ...p,
+                metrics: { revenue: 0, orders: 0, quantity: 0 }
+            })
+            // Map SKUs
+            p.skus.forEach(s => {
+                if (s.sku) skuToProductId.set(s.sku.toLowerCase(), p.id)
+            })
+            // Map Name
+            if (p.name) nameToProductId.set(p.name.toLowerCase(), p.id)
         })
 
-        // 4. Calculate Global Metrics
-        const totalRevenue = orderItems.reduce((sum, item) => sum + item.totalRevenue, 0) // This is item revenue. Better to use Order revenue?
-        // Actually, orderItems includes all items. But we need Total Revenue of the shop to calculate OpEx %.
-        // Let's fetch all Orders directly for accurate Total Revenue and Total Platform Fees.
+        // Distribute stats
+        itemStats.forEach(stat => {
+            let productId = null
 
-        const allOrders = await prisma.order.findMany({
-            where: {
-                ...dateFilter,
-                status: { not: 'Cancelled' }
+            // Try matching by SKU
+            if (stat.sku) {
+                productId = skuToProductId.get(stat.sku.toLowerCase())
             }
-        })
 
-        const globalRevenue = allOrders.reduce((sum, o) => sum + o.revenue, 0)
-        const globalPlatformFees = allOrders.reduce((sum, o) => sum + (o.platformFee || 0), 0) // Note: platformFee in DB is (Revenue - NetPayout), so it includes everything.
-        // Wait, earlier we established platformFee = Revenue - NetPayout.
-        // So Platform Fee % = (Total Platform Fees) / Total Revenue.
+            // Try matching by Name if no SKU match
+            if (!productId && stat.productName) {
+                productId = nameToProductId.get(stat.productName.toLowerCase())
+            }
 
-        const totalOpEx = expenses.reduce((sum, e) => sum + e.amount, 0)
-
-        const avgPlatformFeePercent = globalRevenue > 0 ? (globalPlatformFees / globalRevenue) : 0
-        const avgOpExPercent = globalRevenue > 0 ? (totalOpEx / globalRevenue) : 0
-
-        // 5. Aggregate metrics per product
-        const productMetrics = products.map(product => {
-            // ... (existing logic)
-            // Find items related to this product
-            const productSkuSet = new Set(product.skus.map(s => s.sku))
-            const items = orderItems.filter(item =>
-                (item.sku && productSkuSet.has(item.sku)) || item.productName === product.name
-            )
-
-            const totalOrders = new Set(items.map(i => i.orderId)).size
-            const totalQuantity = items.reduce((sum, i) => sum + i.quantity, 0)
-            const totalRevenue = items.reduce((sum, i) => sum + i.totalRevenue, 0)
-
-            // Calculate COGS
-            const totalCOGS = totalQuantity * (product.materialCost + product.laborCost)
-
-            // We can still return these for now, but UI will ignore them if needed.
-            // ...
-
-            return {
-                id: product.id,
-                name: product.name,
-                sku: product.sku,
-                category: product.category,
-                sellingPrice: product.sellingPrice,
-                materialCost: product.materialCost,
-                laborCost: product.laborCost,
-                tags: product.tags ? product.tags.split(',') : [],
-                metrics: {
-                    revenue: totalRevenue,
-                    orders: totalOrders,
-                    quantity: totalQuantity,
-                    // ...
+            if (productId) {
+                const p = productMap.get(productId)
+                if (p) {
+                    p.metrics.revenue += stat._sum.totalRevenue || 0
+                    p.metrics.quantity += stat._sum.quantity || 0
+                    p.metrics.orders += stat._count.orderId || 0
                 }
             }
         })
 
-        // Sort by Revenue desc by default
-        productMetrics.sort((a, b) => b.metrics.revenue - a.metrics.revenue)
+        // Convert map to array and sort
+        const productMetrics = Array.from(productMap.values())
+            .sort((a, b) => b.metrics.revenue - a.metrics.revenue)
 
         return NextResponse.json({
             products: productMetrics,
             globalMetrics: {
                 avgPlatformFeePercent,
                 avgOpExPercent,
-                totalRevenue: globalRevenue,
+                totalRevenue,
                 totalOpEx,
-                totalPlatformFees: globalPlatformFees
+                totalPlatformFees
             },
             period
+        }, {
+            headers: {
+                'Cache-Control': 's-maxage=60, stale-while-revalidate=300'
+            }
         })
 
     } catch (error: any) {
