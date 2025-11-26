@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev > logs.txt 2>&1",
     "build": "next build",
     "start": "npm run schedule & next start",
     "lint": "eslint",

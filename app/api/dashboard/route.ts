@@ -251,7 +251,7 @@ export async function GET(req: NextRequest) {
             revenue,
             netPayout,
             platformFees: totalPlatformFees,
-            totalExpenses,
+            totalExpenses: totalExpenses - platformExpenses,
             materials,
             adsSpend,
             operating,
