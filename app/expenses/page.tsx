@@ -84,150 +84,158 @@ export default function ExpensesPage() {
     // Fetch expenses and orders
     const fetchData = async () => {
         try {
-            // 1. Fetch manual expenses
-            const expRes = await fetch('/api/expenses')
-            const expData = await expRes.json()
-            const manualExpenses: Expense[] = (expData.expenses || expData || []).map((e: any) => {
+            // Calculate previous period dates for comparison
+            const currentFrom = new Date(dateFrom)
+            const currentTo = new Date(dateTo)
+            const diff = differenceInDays(currentTo, currentFrom) + 1
+            const prevToDate = subDays(currentFrom, 1)
+            const prevFromDate = subDays(prevToDate, diff - 1)
+
+            const prevFrom = format(prevFromDate, 'yyyy-MM-dd')
+            const prevTo = format(prevToDate, 'yyyy-MM-dd')
+
+            // Fetch all required data in parallel
+            const [currentExpRes, prevExpRes, currentOrdRes, prevOrdRes] = await Promise.all([
+                fetch(`/api/expenses?startDate=${dateFrom}&endDate=${dateTo}`),
+                fetch(`/api/expenses?startDate=${prevFrom}&endDate=${prevTo}`),
+                fetch(`/api/orders?startDate=${dateFrom}&endDate=${dateTo}`),
+                fetch(`/api/orders?startDate=${prevFrom}&endDate=${prevTo}`)
+            ])
+
+            const [currentExpData, prevExpData, currentOrdData, prevOrdData] = await Promise.all([
+                currentExpRes.json(),
+                prevExpRes.json(),
+                currentOrdRes.json(),
+                prevOrdRes.json()
+            ])
+
+            // Process Current Expenses
+            const processExpenses = (data: any) => (data.expenses || data || []).map((e: any) => {
                 let details = undefined;
                 if (e.description) {
                     try {
                         const parsed = JSON.parse(e.description);
-                        // Convert object to array of { label, amount }
                         if (typeof parsed === 'object' && parsed !== null) {
                             details = Object.entries(parsed).map(([key, value]) => ({
-                                label: key, // You might want to map keys to human-readable labels here if needed
+                                label: key,
                                 amount: Number(value)
                             })).filter(item => item.amount > 0).sort((a, b) => b.amount - a.amount);
                         }
-                    } catch (err) {
-                        // Description is just text, ignore
-                    }
+                    } catch (err) { }
                 }
-                return {
-                    ...e,
-                    date: new Date(e.date),
-                    details
-                };
+                return { ...e, date: new Date(e.date), details };
             })
 
-            // Extract unique subcategories for autocomplete
+            const currentManualExpenses = processExpenses(currentExpData)
+            const previousManualExpenses = processExpenses(prevExpData)
+
+            // Extract unique subcategories
             const uniqueSubcategories = Array.from(
-                new Set(manualExpenses
-                    .filter(e => e.subcategory)
-                    .map(e => e.subcategory as string)
+                new Set([...currentManualExpenses, ...previousManualExpenses]
+                    .filter((e: any) => e.subcategory)
+                    .map((e: any) => e.subcategory as string)
                 )
             ).sort()
-            setSubcategorySuggestions(uniqueSubcategories)
+            setSubcategorySuggestions(uniqueSubcategories as string[])
 
-            // 2. Fetch orders to calculate platform fees
-            const ordRes = await fetch('/api/orders')
-            const ordData = await ordRes.json()
-            const orders: any[] = ordData.orders || ordData || []
+            // Helper to calculate platform fees
+            const calculatePlatformFees = (orders: any[]) => {
+                const platformFeesMap = new Map<string, { total: number, details: Map<string, number> }>()
 
-            // 3. Group platform fees by Month & Platform
-            // Map key: "yyyy-MM|Platform" -> { total: number, details: Map<string, number> }
-            const platformFeesMap = new Map<string, { total: number, details: Map<string, number> }>()
+                orders.forEach(order => {
+                    const date = new Date(order.date)
+                    const monthKey = format(date, 'yyyy-MM')
+                    const platform = order.platform
+                    const groupKey = `${monthKey}|${platform}`
 
-            orders.forEach(order => {
-                const date = new Date(order.date)
-                const monthKey = format(date, 'yyyy-MM')
-                const platform = order.platform
-                const groupKey = `${monthKey}|${platform}`
-
-                if (!platformFeesMap.has(groupKey)) {
-                    platformFeesMap.set(groupKey, { total: 0, details: new Map() })
-                }
-                const group = platformFeesMap.get(groupKey)!
-
-                // Helper to add fee
-                const addFee = (type: string, amount: number | undefined | null) => {
-                    if (amount && amount > 0) {
-                        group.total += amount
-                        const currentDetail = group.details.get(type) || 0
-                        group.details.set(type, currentDetail + amount)
+                    if (!platformFeesMap.has(groupKey)) {
+                        platformFeesMap.set(groupKey, { total: 0, details: new Map() })
                     }
-                }
+                    const group = platformFeesMap.get(groupKey)!
 
-                if (platform === 'Shopee') {
-                    addFee('Phí dịch vụ', order.serviceFee)
-                    addFee('Phí thanh toán', order.paymentFee)
-                    addFee('Phí cố định', order.fixedFee)
-                    addFee('Phí Affiliate', order.affiliateFee)
-                    addFee('Phí vận chuyển (Shop trả)', order.shippingFee)
-                    addFee('Voucher/Giảm giá', order.promotion)
-                    addFee('Thuế (VAT/PIT)', (order.taxVAT || 0) + (order.taxPIT || 0))
+                    const addFee = (type: string, amount: number | undefined | null) => {
+                        if (amount && amount > 0) {
+                            group.total += amount
+                            const currentDetail = group.details.get(type) || 0
+                            group.details.set(type, currentDetail + amount)
+                        }
+                    }
 
-                    // NEW: Detailed Shopee Fees
-                    // Note: These fields must be present in the API response. 
-                    // If they are stored in 'otherFees' or similar, we might need to extract them.
-                    // For now, assuming they are passed through if we update the API/Schema.
-                    // If not, they might be lumped in 'Phí khác'.
-                    addFee('Voucher người bán', order.sellerVoucher)
-                    addFee('Hoàn xu người bán', order.sellerCoinCashback)
-                    addFee('Phí trả hàng', order.returnShippingFee)
+                    if (platform === 'Shopee') {
+                        addFee('Phí dịch vụ', order.serviceFee)
+                        addFee('Phí thanh toán', order.paymentFee)
+                        addFee('Phí cố định', order.fixedFee)
+                        addFee('Phí Affiliate', order.affiliateFee)
+                        addFee('Phí vận chuyển (Shop trả)', order.shippingFee)
+                        addFee('Voucher/Giảm giá', order.promotion)
+                        addFee('Thuế (VAT/PIT)', (order.taxVAT || 0) + (order.taxPIT || 0))
+                        addFee('Voucher người bán', order.sellerVoucher)
+                        addFee('Hoàn xu người bán', order.sellerCoinCashback)
+                        addFee('Phí trả hàng', order.returnShippingFee)
+                        addFee('Phí khác', order.otherFees)
+                    } else if (platform === 'TikTok') {
+                        addFee('Phí hoa hồng (Commission)', order.commissionFee)
+                        addFee('Phí giao dịch (Transaction)', order.transactionFee)
+                        addFee('Phí xử lý đơn hàng (Order processing)', order.orderProcessingFee)
+                        addFee('Hoa hồng Affiliate (KOL/KOC)', order.affiliateCommission)
+                        addFee('Hoa hồng Quảng cáo cửa hàng', order.adCommission)
+                        addFee('Hoa hồng Đối tác', order.partnerCommission)
+                        addFee('Hoa hồng Đối tác - Quảng cáo', order.affiliatePartnerShopAdsCommission)
+                        addFee('Phí Flash Sale', order.flashSaleFee)
+                        addFee('Phí dịch vụ khác', order.otherServiceFees)
+                        addFee('Phí vận chuyển (Shop trả)', order.shippingFee)
+                        addFee('Voucher/Giảm giá', order.promotion)
+                        addFee('Thuế (VAT/PIT)', (order.taxVAT || 0) + (order.taxPIT || 0))
+                        addFee('Phí khác', order.otherFees)
+                    } else {
+                        addFee('Phí khác', order.platformFee)
+                    }
 
-                    addFee('Phí khác', order.otherFees)
-                } else if (platform === 'TikTok') {
-                    addFee('Phí hoa hồng (Commission)', order.commissionFee)
-                    addFee('Phí giao dịch (Transaction)', order.transactionFee)
-                    addFee('Phí xử lý đơn hàng (Order processing)', order.orderProcessingFee)
-                    addFee('Hoa hồng Affiliate (KOL/KOC)', order.affiliateCommission)
-                    addFee('Hoa hồng Quảng cáo cửa hàng', order.adCommission)
-                    addFee('Hoa hồng Đối tác', order.partnerCommission)
-                    addFee('Hoa hồng Đối tác - Quảng cáo', order.affiliatePartnerShopAdsCommission)
-                    addFee('Phí Flash Sale', order.flashSaleFee)
-                    addFee('Phí dịch vụ khác', order.otherServiceFees)
-                    addFee('Phí vận chuyển (Shop trả)', order.shippingFee)
-                    addFee('Voucher/Giảm giá', order.promotion)
-                    addFee('Thuế (VAT/PIT)', (order.taxVAT || 0) + (order.taxPIT || 0))
-                    addFee('Phí khác', order.otherFees)
-                } else {
-                    // Other platforms
-                    addFee('Phí khác', order.platformFee)
-                }
+                    const currentTotal = Array.from(group.details.values()).reduce((a, b) => a + b, 0)
+                    if (currentTotal === 0 && order.platformFee > 0) {
+                        addFee('Phí sàn (Chung)', order.platformFee)
+                    }
+                })
 
-                // Fallback: If no detailed fees found but platformFee exists, show generic "Phí sàn"
-                // We calculate what we have so far to check if we missed anything
-                const currentTotal = Array.from(group.details.values()).reduce((a, b) => a + b, 0)
+                return Array.from(platformFeesMap.entries()).map(([key, data]) => {
+                    const [month, platform] = key.split('|')
+                    const date = new Date(`${month}-01`)
+                    const details = Array.from(data.details.entries()).map(([label, amount]) => ({
+                        label, amount
+                    })).sort((a, b) => b.amount - a.amount)
 
-                // If the detailed breakdown is significantly less than the total platformFee stored, 
-                // it implies we have some "Uncategorized" fees or the breakdown was missing.
-                // However, for Shopee/TikTok, we trust the breakdown if it exists.
-                // If breakdown is empty (currentTotal == 0) and platformFee > 0, add it.
-                if (currentTotal === 0 && order.platformFee > 0) {
-                    addFee('Phí sàn (Chung)', order.platformFee)
-                }
-            })
+                    return {
+                        id: `sys-${key}`,
+                        date: date,
+                        type: "Platform",
+                        category: "Platform",
+                        subcategory: platform,
+                        amount: data.total,
+                        note: `Tự động tổng hợp từ đơn hàng ${month}`,
+                        isSystem: true,
+                        details: details,
+                        costType: "Variable",
+                        isRecurring: true
+                    }
+                })
+            }
 
-            const systemExpenses: Expense[] = Array.from(platformFeesMap.entries()).map(([key, data]) => {
-                const [month, platform] = key.split('|')
-                const date = new Date(`${month}-01`) // First day of month
+            const currentSystemExpenses = calculatePlatformFees(currentOrdData.orders || [])
+            const previousSystemExpenses = calculatePlatformFees(prevOrdData.orders || [])
 
-                // Convert details map to array
-                const details = Array.from(data.details.entries()).map(([label, amount]) => ({
-                    label,
-                    amount
-                })).sort((a, b) => b.amount - a.amount)
-
-                return {
-                    id: `sys-${key}`,
-                    date: date, // Use first of month for grouping
-                    type: "Platform",
-                    category: "Platform",
-                    subcategory: platform, // Show Platform name as subcategory
-                    amount: data.total,
-                    note: `Tự động tổng hợp từ đơn hàng ${month}`,
-                    isSystem: true,
-                    details: details,
-                    costType: "Variable", // Platform fees are variable
-                    isRecurring: true // Monthly recurring
-                }
-            })
-
-            // Merge and sort by date desc
-            const allExpenses = [...manualExpenses, ...systemExpenses].sort((a, b) =>
+            // Merge and sort
+            const allCurrentExpenses = [...currentManualExpenses, ...currentSystemExpenses].sort((a, b) =>
                 new Date(b.date).getTime() - new Date(a.date).getTime()
             )
+
+            // We store ALL expenses (current + previous) in state but filter them in useMemo
+            // Actually, to keep logic simple, let's just store everything in 'expenses' 
+            // and let the existing useMemo logic handle the splitting based on date ranges.
+            // However, existing useMemo relies on 'expenses' containing everything.
+            // So we should combine them.
+
+            const allExpenses = [...currentManualExpenses, ...previousManualExpenses, ...currentSystemExpenses, ...previousSystemExpenses]
+            // Remove duplicates if any (though IDs should be unique enough or we don't care for display)
 
             setExpenses(allExpenses)
         } catch (error) {
@@ -237,7 +245,7 @@ export default function ExpensesPage() {
 
     useEffect(() => {
         fetchData()
-    }, [])
+    }, [dateFrom, dateTo])
 
     // Number formatting helper
     const formatNumber = (value: string): string => {

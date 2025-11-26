@@ -71,7 +71,12 @@ export default function OrdersPage() {
     useEffect(() => {
         const fetchOrders = async () => {
             try {
-                const res = await fetch('/api/orders')
+                setLoading(true)
+                const queryParams = new URLSearchParams()
+                if (dateFrom) queryParams.append('startDate', dateFrom.toISOString())
+                if (dateTo) queryParams.append('endDate', dateTo.toISOString())
+
+                const res = await fetch(`/api/orders?${queryParams}`)
                 const data = await res.json()
 
                 const processedOrders = (data.orders || []).map((order: any) => {
@@ -98,27 +103,29 @@ export default function OrdersPage() {
                 })
 
                 setOrders(processedOrders)
-                // Initial filter will happen in the other useEffect
             } catch (error) {
                 console.error("Failed to fetch orders:", error)
             } finally {
                 setLoading(false)
             }
         }
-        fetchOrders()
-    }, [])
+
+        if (dateFrom && dateTo) {
+            fetchOrders()
+        }
+    }, [dateFrom, dateTo])
 
     // Filtering Logic
     useEffect(() => {
         let result = [...orders]
 
-        // Date Filter
-        if (dateFrom && dateTo) {
-            result = result.filter(o => {
-                const d = new Date(o.date)
-                return d >= startOfDay(dateFrom) && d <= endOfDay(dateTo)
-            })
-        }
+        // Date Filter - Handled by API now
+        // if (dateFrom && dateTo) {
+        //     result = result.filter(o => {
+        //         const d = new Date(o.date)
+        //         return d >= startOfDay(dateFrom) && d <= endOfDay(dateTo)
+        //     })
+        // }
 
         // Search
         if (searchQuery) {
