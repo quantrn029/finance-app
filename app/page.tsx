@@ -70,6 +70,19 @@ export default function DashboardPage() {
           fetch('/api/goals')
         ])
 
+        if (!ordersRes.ok) {
+          const err = await ordersRes.json()
+          throw new Error(err.error || "Failed to fetch orders")
+        }
+        if (!expensesRes.ok) {
+          const err = await expensesRes.json()
+          throw new Error(err.error || "Failed to fetch expenses")
+        }
+        if (!goalsRes.ok) {
+          const err = await goalsRes.json()
+          throw new Error(err.error || "Failed to fetch goals")
+        }
+
         const ordersData = await ordersRes.json()
         const expensesData = await expensesRes.json()
         const goalsData = await goalsRes.json()
@@ -230,7 +243,7 @@ export default function DashboardPage() {
         })
       } catch (error: any) {
         console.error("Failed to fetch dashboard data:", error)
-        setError("Không thể tải dữ liệu. Vui lòng kiểm tra kết nối Database.")
+        setError(error.message || "Không thể tải dữ liệu. Vui lòng kiểm tra kết nối Database.")
       } finally {
         setLoading(false)
       }
