@@ -4,25 +4,7 @@ import { startOfDay, endOfDay, format } from "date-fns"
 
 export const dynamic = 'force-dynamic'
 
-// Helper to calculate fees from order
-const calculateOrderFees = (order: any) => {
-    let fees = 0
-    if (order.platform === 'Shopee') {
-        fees += (order.serviceFee || 0) + (order.paymentFee || 0) + (order.fixedFee || 0) +
-            (order.affiliateFee || 0) + (order.shippingFee || 0) + (order.promotion || 0) +
-            (order.taxVAT || 0) + (order.taxPIT || 0) + (order.sellerVoucher || 0) +
-            (order.returnShippingFee || 0) + (order.otherFees || 0)
-    } else if (order.platform === 'TikTok') {
-        fees += (order.commissionFee || 0) + (order.transactionFee || 0) + (order.orderProcessingFee || 0) +
-            (order.affiliateCommission || 0) + (order.adCommission || 0) + (order.partnerCommission || 0) +
-            (order.affiliatePartnerShopAdsCommission || 0) + (order.flashSaleFee || 0) +
-            (order.otherServiceFees || 0) + (order.shippingFee || 0) + (order.promotion || 0) +
-            (order.taxVAT || 0) + (order.taxPIT || 0) + (order.otherFees || 0)
-    } else {
-        fees += (order.platformFee || 0)
-    }
-    return fees
-}
+
 
 export async function GET(req: NextRequest) {
     try {
@@ -46,7 +28,7 @@ export async function GET(req: NextRequest) {
         })
 
         // 2. Fetch Orders for Platform Fees (Optimized Select)
-        // We only need fee columns, date, and platform.
+        // We use the 'platformFee' column directly to ensure consistency with Dashboard and Finance pages.
         const orders = await prisma.order.findMany({
             where: {
                 date: { gte: startDate, lte: endDate },
@@ -55,35 +37,23 @@ export async function GET(req: NextRequest) {
             select: {
                 date: true,
                 platform: true,
-                // Shopee
-                serviceFee: true, paymentFee: true, fixedFee: true, affiliateFee: true,
-                shippingFee: true, promotion: true, taxVAT: true, taxPIT: true,
-                sellerVoucher: true, returnShippingFee: true, otherFees: true,
-                // TikTok
-                commissionFee: true, transactionFee: true, orderProcessingFee: true,
-                affiliateCommission: true, adCommission: true, partnerCommission: true,
-                affiliatePartnerShopAdsCommission: true, flashSaleFee: true, otherServiceFees: true,
-                // General
                 platformFee: true
             }
         })
 
         // 3. Aggregate Platform Fees (Server-side)
-        const platformFeesMap = new Map<string, { total: number, details: any }>()
+        const platformFeesMap = new Map<string, number>()
 
         orders.forEach(order => {
             const monthKey = format(order.date, 'yyyy-MM')
             const platform = order.platform
             const groupKey = `${monthKey}|${platform}`
 
-            if (!platformFeesMap.has(groupKey)) {
-                platformFeesMap.set(groupKey, { total: 0, details: {} }) // Details could be expanded if needed
-            }
-            const group = platformFeesMap.get(groupKey)!
-            group.total += calculateOrderFees(order)
+            const currentTotal = platformFeesMap.get(groupKey) || 0
+            platformFeesMap.set(groupKey, currentTotal + (order.platformFee || 0))
         })
 
-        const systemExpenses = Array.from(platformFeesMap.entries()).map(([key, data]) => {
+        const systemExpenses = Array.from(platformFeesMap.entries()).map(([key, total]) => {
             const [month, platform] = key.split('|')
             return {
                 id: `sys-${key}`,
@@ -91,7 +61,7 @@ export async function GET(req: NextRequest) {
                 type: "Platform",
                 category: "Platform",
                 subcategory: platform,
-                amount: data.total,
+                amount: total,
                 note: `Tự động tổng hợp từ đơn hàng ${month}`,
                 isSystem: true,
                 costType: "Variable",

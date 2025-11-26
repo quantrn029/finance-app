@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
-import { getDaysInMonth, differenceInDays, startOfMonth, subWeeks } from "date-fns"
+import { getDaysInMonth, differenceInDays, startOfMonth, subWeeks, startOfDay, endOfDay } from "date-fns"
 
 export const dynamic = 'force-dynamic'
 
@@ -41,8 +41,8 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Missing startDate or endDate' }, { status: 400 })
         }
 
-        const startDate = new Date(startDateStr)
-        const endDate = new Date(endDateStr)
+        const startDate = startOfDay(new Date(startDateStr))
+        const endDate = endOfDay(new Date(endDateStr))
 
         // 1. Aggregations (Database-level calculations)
         const orderAggregations = await prisma.order.aggregate({
@@ -141,17 +141,22 @@ export async function GET(req: NextRequest) {
 
         let materials = 0
         let adsSpend = 0
+        let platformExpenses = 0
 
         expenseByCategory.forEach(group => {
             const amount = group._sum.amount || 0
-            if (group.type === 'Materials' || group.category === 'Materials') {
+            if (group.type === 'Materials' || group.category === 'Materials' || group.category === 'COGS') {
                 materials += amount
             } else if (group.type === 'Ads' || group.category === 'Ads') {
                 adsSpend += amount
+            } else if (group.category === 'Platform') {
+                platformExpenses += amount
             }
         })
 
-        const operating = totalExpenses - materials - adsSpend
+        const operating = totalExpenses - materials - adsSpend - platformExpenses
+        // Add manual platform expenses to the total platform fees
+        const totalPlatformFees = platformFees + platformExpenses
         const profit = netPayout - totalExpenses
         const aov = orderCount > 0 ? revenue / orderCount : 0
 
@@ -228,7 +233,7 @@ export async function GET(req: NextRequest) {
         }).filter(c => c.orders > 0)
 
         // 8. Alerts
-        const cir = revenue > 0 ? ((platformFees + adsSpend) / revenue) * 100 : 0
+        const cir = revenue > 0 ? ((totalPlatformFees + adsSpend) / revenue) * 100 : 0
         const materialsRatio = revenue > 0 ? (materials / revenue) * 100 : 0
         // Simplified order drop: compare current count vs last week count (if available)
         // For now, 0
@@ -245,7 +250,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({
             revenue,
             netPayout,
-            platformFees,
+            platformFees: totalPlatformFees,
             totalExpenses,
             materials,
             adsSpend,
