@@ -113,7 +113,7 @@ export function DashboardClient({ initialData, initialPeriod = 'month', initialD
         setHasUserInteracted(true)
     }
 
-    const handleDateRangeChange = (range: { from?: Date, to?: Date }) => {
+    const handleDateRangeChange = (range: { from?: Date, to?: Date } | undefined) => {
         if (range?.from && range?.to) {
             setDateRange({ from: range.from, to: range.to })
             setHasUserInteracted(true)
