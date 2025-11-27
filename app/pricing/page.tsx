@@ -278,7 +278,8 @@ export default function PricingPage() {
                 fetchProducts() // Refresh list
                 alert("Đã lưu sản phẩm thành công!")
             } else {
-                alert("Lỗi khi lưu sản phẩm")
+                const data = await res.json()
+                alert(data.error || "Lỗi khi lưu sản phẩm")
             }
         } catch (error) {
             console.error("Save error", error)

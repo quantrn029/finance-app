@@ -103,6 +103,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, product: updatedProduct })
     } catch (error: any) {
         console.error("Create/update product error:", error)
+
+        // Handle Unique Constraint Violation
+        if (error.code === 'P2002' && error.meta?.target?.includes('name')) {
+            return NextResponse.json({ error: "Tên sản phẩm đã tồn tại. Vui lòng chọn tên khác." }, { status: 409 })
+        }
+
         return NextResponse.json({ error: error.message || "Failed to save product" }, { status: 500 })
     }
 }
