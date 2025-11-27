@@ -140,7 +140,7 @@ export async function GET(req: NextRequest) {
             })
         ])
 
-        const adjustmentTotal = adjustments._sum.amount || 0
+        const adjustmentTotal = (!abnormal) ? (adjustments._sum.amount || 0) : 0
 
         return NextResponse.json({
             orders,
