@@ -32,7 +32,15 @@ export default function ImportPage() {
                 body: formData,
             })
 
-            const data = await res.json()
+            let data
+            const contentType = res.headers.get("content-type")
+            if (contentType && contentType.includes("application/json")) {
+                data = await res.json()
+            } else {
+                // Handle non-JSON response (e.g. 413 Payload Too Large, 504 Gateway Timeout)
+                const text = await res.text()
+                throw new Error(`Upload failed: ${res.status} ${res.statusText}${text ? ` - ${text.slice(0, 100)}` : ''}`)
+            }
 
             if (!res.ok) {
                 throw new Error(data.error || "Upload failed")

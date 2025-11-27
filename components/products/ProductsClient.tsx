@@ -91,7 +91,10 @@ export function ProductsClient({ initialProducts, initialGlobalMetrics }: Produc
     // Handle form submit
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
-        await saveProduct(formData)
+        await saveProduct({
+            ...formData,
+            id: editingProduct?.id
+        })
     }
 
     const handleQuickAdd = async () => {
