@@ -73,7 +73,14 @@ export function TimePeriodFilter({
         <div className="flex items-center gap-2">
             <select
                 value={period}
-                onChange={(e) => setPeriod(e.target.value)}
+                onChange={(e) => {
+                    const newPeriod = e.target.value as TimePeriod
+                    setPeriod(newPeriod)
+                    if (newPeriod !== 'custom') {
+                        const range = getPeriodRange(newPeriod)
+                        setDateRange(range)
+                    }
+                }}
                 className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
                 <option value="today">Hôm nay</option>
