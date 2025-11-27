@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
-import { startOfDay, endOfDay, format, eachDayOfInterval, isSameDay } from "date-fns"
+import { startOfDay, endOfDay, format, eachDayOfInterval, isSameDay, subYears, subMonths } from "date-fns"
 
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +9,7 @@ export async function GET(request: Request) {
         const { searchParams } = new URL(request.url)
         const from = searchParams.get("from")
         const to = searchParams.get("to")
+        const comparisonMode = searchParams.get("comparison") || "mom" // Renamed to avoid collision
 
         if (!from || !to) {
             return NextResponse.json({ error: "Missing date range" }, { status: 400 })
@@ -17,10 +18,19 @@ export async function GET(request: Request) {
         const startDate = startOfDay(new Date(from))
         const endDate = endOfDay(new Date(to))
 
-        // Calculate previous period
-        const duration = endDate.getTime() - startDate.getTime()
-        const prevStartDate = new Date(startDate.getTime() - duration)
-        const prevEndDate = new Date(endDate.getTime() - duration)
+        // Calculate previous period based on comparison mode
+        let prevStartDate: Date
+        let prevEndDate: Date
+
+        if (comparisonMode === 'yoy') {
+            // Year-over-Year: Subtract 1 year
+            prevStartDate = subYears(startDate, 1)
+            prevEndDate = subYears(endDate, 1)
+        } else {
+            // Month-over-Month (Default): Subtract 1 month
+            prevStartDate = subMonths(startDate, 1)
+            prevEndDate = subMonths(endDate, 1)
+        }
 
         // --- 1. PARALLEL DATA FETCHING ---
         const [
