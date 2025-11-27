@@ -132,8 +132,19 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         try {
+            let period = formData.period.trim()
+
+            // Validate Period Format
+            if (activeTab === 'monthly') {
+                if (!/^\d{4}-\d{2}$/.test(period)) throw new Error("Định dạng tháng không hợp lệ (YYYY-MM)")
+            } else if (activeTab === 'quarterly') {
+                if (!/^\d{4}-Q[1-4]$/.test(period)) throw new Error("Định dạng quý không hợp lệ (YYYY-Qx, ví dụ: 2025-Q1)")
+            } else if (activeTab === 'yearly') {
+                if (!/^\d{4}$/.test(period)) throw new Error("Định dạng năm không hợp lệ (YYYY)")
+            }
+
             const payload = {
-                period: formData.period,
+                period: period,
                 type: activeTab,
                 revenueTarget: parseNumber(formData.revenueTarget),
                 profitTarget: parseNumber(formData.profitTarget),

@@ -147,6 +147,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
     try {
         const body = await req.json()
+        console.log("POST /api/goals payload:", body)
         const { period, type, revenueTarget, profitTarget, ordersTarget, manuallyEdited, details } = body
 
         if (!period || !type) {
