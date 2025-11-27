@@ -458,20 +458,33 @@ export function mapTikTokData(data: any[][], _unused?: string): ParsedOrder[] {
 
             // Calculate Platform Fee from components
             // Must include ALL fees that reduce the payout
-            const platformFee = commissionFee + transactionFee + orderProcessingFee +
+            const componentsSum = commissionFee + transactionFee + orderProcessingFee +
                 affiliateCommission + adCommission + partnerCommission +
                 affiliatePartnerShopAdsCommission + flashSaleFee +
                 serviceFee + otherServiceFees + taxVAT + taxPIT + sellerShippingFee
 
-            // Fallback: Use "Total Fees" column if it's larger than our sum (meaning we missed something)
-            // But be careful: Total Fees often excludes Affiliate fees in some exports
-            const reportedTotalFees = Math.abs(parseCurrency(getCol("Total Fees") || getCol("Tổng phí")))
+            // PRIMARY TRUTH: Calculate Platform Fee from Financials
+            // Platform Fee = Revenue - Net Payout
+            let platformFee = componentsSum
+            let otherFees = 0
 
-            // If reported total is significantly larger than our sum, use it (but add back affiliate if needed)
-            // For now, trust our component sum as it's more transparent
-            if (reportedTotalFees > platformFee + 1000) {
-                // console.log(`DEBUG TIKTOK: Reported Total (${reportedTotalFees}) > Sum (${platformFee}) for ${orderId}`)
-                // platformFee = reportedTotalFees // Optional: enable if we trust Total Fees more
+            // Only override if we have valid revenue and payout
+            // And if the difference is significant (to avoid rounding errors)
+            if (revenue !== 0 || netPayout !== 0) {
+                const calculatedFee = revenue - netPayout
+                // If calculated fee is different from components sum by more than 100 VND (rounding)
+                if (Math.abs(calculatedFee - componentsSum) > 100) {
+                    platformFee = calculatedFee
+                    // The difference is "Other Fees" (or missing fees)
+                    // If calculated > components, we missed some fees
+                    if (platformFee > componentsSum) {
+                        otherFees = platformFee - componentsSum
+                    }
+                    // If calculated < components, something is wrong with our parsing or the file
+                    // But we trust Net Payout, so we adjust. 
+                    // However, we can't easily reduce specific components. 
+                    // We'll just trust the calculated platformFee.
+                }
             }
 
             // Parse date - "Order created time" in Income file (YYYY/MM/DD)
@@ -548,6 +561,7 @@ export function mapTikTokData(data: any[][], _unused?: string): ParsedOrder[] {
                 orderProcessingFee: orderProcessingFee || undefined,
                 taxVAT: taxVAT || undefined,
                 taxPIT: taxPIT || undefined,
+                otherFees: otherFees > 0 ? otherFees : undefined
             }
         })
         .filter((o): o is ParsedOrder => o !== null)

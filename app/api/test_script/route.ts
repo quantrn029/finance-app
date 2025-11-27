@@ -1,22 +1,15 @@
+import { NextResponse } from 'next/server'
+import prisma from '@/lib/prisma'
 
-import { NextResponse } from "next/server"
-import prisma from "@/lib/prisma"
+export async function GET(request: Request) {
+    const { searchParams } = new URL(request.url)
+    const orderId = searchParams.get('id')
 
-export async function GET() {
-    const shopeeCount = await prisma.order.count({
-        where: { platform: 'Shopee' }
+    if (!orderId) return NextResponse.json({ error: 'Missing id' })
+
+    const order = await prisma.order.findUnique({
+        where: { platformOrderId: orderId }
     })
-    console.log("DEBUG: Shopee Count:", shopeeCount)
 
-    const shopeeSample = await prisma.order.findMany({
-        where: { platform: 'Shopee' },
-        take: 5,
-        orderBy: { date: 'desc' }
-    })
-    console.log("DEBUG: Shopee Sample:", JSON.stringify(shopeeSample))
-
-    return NextResponse.json({
-        shopeeCount,
-        shopeeSample
-    })
+    return NextResponse.json(order)
 }
