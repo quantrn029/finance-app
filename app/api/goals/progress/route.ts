@@ -147,6 +147,62 @@ export async function GET(req: NextRequest) {
             }
         }
 
+        // 7. Weekly Breakdown (Monthly Only)
+        let weeklyData: { label: string; target: { revenue: number; profit: number; orders: number }; actual: { revenue: number; profit: number; orders: number } }[] = []
+        if (type === 'monthly') {
+            const daysInMonthVal = getDaysInMonth(startDate)
+            const dailyRevenueTarget = goal.revenueTarget / daysInMonthVal
+            const dailyProfitTarget = goal.profitTarget / daysInMonthVal
+            const dailyOrdersTarget = goal.ordersTarget / daysInMonthVal
+
+            const weeks = [
+                { label: 'Tuần 1 (1-7)', start: 1, end: 7 },
+                { label: 'Tuần 2 (8-14)', start: 8, end: 14 },
+                { label: 'Tuần 3 (15-21)', start: 15, end: 21 },
+                { label: 'Tuần 4 (22-Cuối tháng)', start: 22, end: daysInMonthVal },
+            ]
+
+            weeklyData = await Promise.all(weeks.map(async (week) => {
+                const wStart = new Date(startDate.getFullYear(), startDate.getMonth(), week.start)
+                const wEnd = new Date(startDate.getFullYear(), startDate.getMonth(), week.end, 23, 59, 59)
+                const daysInWeek = week.end - week.start + 1
+
+                const wOrders = await prisma.order.aggregate({
+                    where: {
+                        date: { gte: wStart, lte: wEnd },
+                        status: { not: 'Cancelled' }
+                    },
+                    _sum: { revenue: true, netPayout: true },
+                    _count: { id: true }
+                })
+
+                const wExpenses = await prisma.expense.aggregate({
+                    where: { date: { gte: wStart, lte: wEnd } },
+                    _sum: { amount: true }
+                })
+
+                const actualRevenue = wOrders._sum.revenue || 0
+                const actualNetPayout = wOrders._sum.netPayout || 0
+                const totalExpenses = wExpenses._sum.amount || 0
+                const actualProfit = actualNetPayout - totalExpenses
+                const actualOrdersCount = wOrders._count.id || 0
+
+                return {
+                    label: week.label,
+                    target: {
+                        revenue: dailyRevenueTarget * daysInWeek,
+                        profit: dailyProfitTarget * daysInWeek,
+                        orders: dailyOrdersTarget * daysInWeek
+                    },
+                    actual: {
+                        revenue: actualRevenue,
+                        profit: actualProfit,
+                        orders: actualOrdersCount
+                    }
+                }
+            }))
+        }
+
         return NextResponse.json({
             found: true,
             goal,
@@ -156,7 +212,8 @@ export async function GET(req: NextRequest) {
                 orders: actualOrders
             },
             channelPerformance,
-            cumulativeData
+            cumulativeData,
+            weeklyData
         }, {
             headers: {
                 'Cache-Control': 's-maxage=60, stale-while-revalidate=300'

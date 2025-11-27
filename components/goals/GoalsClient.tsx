@@ -226,6 +226,63 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                 </div>
             )}
 
+            {/* Weekly Breakdown (Monthly Only) */}
+            {activeTab === 'monthly' && progressData?.weeklyData && (
+                <div className="bg-white p-6 rounded-xl shadow-sm border">
+                    <h3 className="text-lg font-semibold mb-4">Tiến độ theo tuần</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        {progressData.weeklyData.map((week: any, idx: number) => {
+                            const revPercent = week.target.revenue > 0 ? (week.actual.revenue / week.target.revenue) * 100 : 0
+                            const isCurrentWeek = new Date().getDate() >= (idx * 7 + 1) && new Date().getDate() <= (idx === 3 ? 31 : (idx + 1) * 7)
+
+                            return (
+                                <div key={idx} className={`p-4 rounded-lg border ${isCurrentWeek ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 bg-gray-50'}`}>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <span className="font-semibold text-gray-700">{week.label}</span>
+                                        {isCurrentWeek && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Hiện tại</span>}
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        {/* Revenue */}
+                                        <div>
+                                            <div className="flex justify-between text-xs mb-1">
+                                                <span className="text-gray-500">Doanh thu</span>
+                                                <span className={revPercent >= 100 ? "text-emerald-600 font-bold" : "text-gray-700"}>
+                                                    {new Intl.NumberFormat('vi-VN', { notation: "compact" }).format(week.actual.revenue)}
+                                                    <span className="text-gray-400 font-normal"> / {new Intl.NumberFormat('vi-VN', { notation: "compact" }).format(week.target.revenue)}</span>
+                                                </span>
+                                            </div>
+                                            <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full ${revPercent >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                                                    style={{ width: `${Math.min(revPercent, 100)}%` }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Profit */}
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-gray-500">Lợi nhuận</span>
+                                            <span className={week.actual.profit >= week.target.profit ? "text-emerald-600 font-bold" : "text-gray-700"}>
+                                                {new Intl.NumberFormat('vi-VN', { notation: "compact" }).format(week.actual.profit)}
+                                            </span>
+                                        </div>
+
+                                        {/* Orders */}
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-gray-500">Đơn hàng</span>
+                                            <span className={week.actual.orders >= week.target.orders ? "text-emerald-600 font-bold" : "text-gray-700"}>
+                                                {week.actual.orders} <span className="text-gray-400 font-normal">/ {Math.round(week.target.orders)}</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                </div>
+            )}
+
             {/* Form Modal */}
             {showForm && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
