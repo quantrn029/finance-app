@@ -260,6 +260,16 @@ export function ProductsClient({ initialProducts, initialGlobalMetrics }: Produc
                 ? (a.sellingPrice || 0) - (b.sellingPrice || 0)
                 : (b.sellingPrice || 0) - (a.sellingPrice || 0)
         }
+        if (sortConfig.key === 'costPrice') {
+            const costA = a.materialCost + a.laborCost
+            const costB = b.materialCost + b.laborCost
+            return sortConfig.direction === 'asc' ? costA - costB : costB - costA
+        }
+        if (sortConfig.key === 'grossMargin') {
+            const marginA = calculateMargins(a).grossMargin
+            const marginB = calculateMargins(b).grossMargin
+            return sortConfig.direction === 'asc' ? marginA - marginB : marginB - marginA
+        }
         // Default sort by Net Margin asc (to find bad products)
         const marginA = calculateMargins(a).netMargin
         const marginB = calculateMargins(b).netMargin
@@ -505,6 +515,7 @@ export function ProductsClient({ initialProducts, initialGlobalMetrics }: Produc
                             <option value="netMargin">Sắp xếp: Net Margin</option>
                             <option value="grossMargin">Sắp xếp: Gross Margin</option>
                             <option value="sellingPrice">Sắp xếp: Giá bán</option>
+                            <option value="costPrice">Sắp xếp: Giá vốn</option>
                             <option value="name">Sắp xếp: Tên sản phẩm</option>
                         </select>
                     </div>
@@ -519,9 +530,15 @@ export function ProductsClient({ initialProducts, initialGlobalMetrics }: Produc
                                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200" onClick={() => handleSort('sellingPrice')}>
                                     Giá bán <ArrowUpDown className="w-3 h-3 inline ml-1" />
                                 </th>
-                                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Giá vốn</th>
-                                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Gross Margin</th>
-                                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Est. Net Margin</th>
+                                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200" onClick={() => handleSort('costPrice')}>
+                                    Giá vốn <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                                </th>
+                                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200" onClick={() => handleSort('grossMargin')}>
+                                    Gross Margin <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                                </th>
+                                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:text-gray-700 dark:hover:text-gray-200" onClick={() => handleSort('netMargin')}>
+                                    Est. Net Margin <ArrowUpDown className="w-3 h-3 inline ml-1" />
+                                </th>
                                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Thao tác</th>
                             </tr>
                         </thead>
