@@ -219,6 +219,29 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
         }
     }
 
+    const handleDelete = async () => {
+        if (!currentGoal) return
+        if (!confirm("Bạn có chắc chắn muốn xóa mục tiêu này không? Hành động này không thể hoàn tác.")) return
+
+        try {
+            const res = await fetch(`/api/goals?id=${currentGoal.id}`, {
+                method: 'DELETE'
+            })
+
+            if (!res.ok) {
+                const errorData = await res.json()
+                throw new Error(errorData.error || "Failed to delete goal")
+            }
+
+            await mutateGoals()
+            setShowForm(false)
+            alert("Đã xóa mục tiêu thành công!")
+        } catch (error: any) {
+            console.error("Delete goal error:", error)
+            alert(`Lỗi khi xóa mục tiêu: ${error.message}`)
+        }
+    }
+
     // Render Logic
     const actual = progressData?.actual || { revenue: 0, profit: 0, orders: 0 }
     const channelPerformance = progressData?.channelPerformance || []
@@ -226,6 +249,7 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
 
     return (
         <div className="p-8 space-y-6">
+            {/* ... (Header and Progress Cards remain same) ... */}
             {/* Header */}
             <div className="flex justify-between items-center">
                 <div>
@@ -533,9 +557,20 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                                 ))}
                             </div>
 
-                            <div className="flex justify-end gap-2">
-                                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border rounded">Hủy</button>
-                                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Lưu</button>
+                            <div className="flex justify-between gap-2">
+                                {currentGoal && (
+                                    <button
+                                        type="button"
+                                        onClick={handleDelete}
+                                        className="px-4 py-2 border border-red-200 text-red-600 rounded hover:bg-red-50"
+                                    >
+                                        Xóa mục tiêu
+                                    </button>
+                                )}
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 border rounded">Hủy</button>
+                                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Lưu</button>
+                                </div>
                             </div>
                         </form>
                     </div>
