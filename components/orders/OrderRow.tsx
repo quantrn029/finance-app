@@ -144,7 +144,7 @@ export default function OrderRow({ order, visibleColumns }: OrderRowProps) {
                     </td>
                 )}
                 <td className="px-4 py-3 text-sm text-right text-red-600">
-                    -{fmt(order.platformFee + order.shippingFee)}
+                    -{fmt(order.platformFee)}
                 </td>
                 {isVisible('net') && (
                     <td className="px-4 py-3 text-sm text-right font-semibold text-blue-600">
@@ -180,7 +180,7 @@ export default function OrderRow({ order, visibleColumns }: OrderRowProps) {
                                         </div>
                                         <div className="border-t dark:border-gray-700 pt-1 mt-1 flex justify-between font-bold dark:text-gray-100">
                                             <span>Tổng phí</span>
-                                            <span>{fmt(order.platformFee + order.shippingFee)}</span>
+                                            <span>{fmt(order.platformFee)}</span>
                                         </div>
                                     </div>
                                 ) : (
@@ -197,7 +197,7 @@ export default function OrderRow({ order, visibleColumns }: OrderRowProps) {
                                     </div>
                                     <div className="flex justify-between text-red-600 dark:text-red-400">
                                         <span className="text-gray-500 dark:text-gray-400">Tổng phí sàn & VC</span>
-                                        <span className="font-medium">-{fmt(order.platformFee + order.shippingFee)}</span>
+                                        <span className="font-medium">-{fmt(order.platformFee)}</span>
                                     </div>
                                     <div className="flex justify-between text-blue-600 dark:text-blue-400 font-medium">
                                         <span className="text-gray-500 dark:text-gray-400">Thực nhận</span>
