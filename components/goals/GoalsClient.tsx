@@ -92,6 +92,43 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
         }))
     }
 
+    // Suggestion State
+    const [suggestions, setSuggestions] = useState<{ period: string, suggestions: { revenue: number, profit: number, orders: number } } | null>(null)
+    const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false)
+
+    // Fetch Suggestions when form opens or period changes
+    useEffect(() => {
+        if (showForm && formData.period) {
+            const fetchSuggestions = async () => {
+                setIsLoadingSuggestions(true)
+                try {
+                    const res = await fetch(`/api/goals/suggestions?period=${formData.period}&type=${activeTab}`)
+                    if (res.ok) {
+                        const data = await res.json()
+                        setSuggestions(data)
+                    }
+                } catch (error) {
+                    console.error("Failed to fetch suggestions", error)
+                } finally {
+                    setIsLoadingSuggestions(false)
+                }
+            }
+            fetchSuggestions()
+        }
+    }, [showForm, formData.period, activeTab])
+
+    const applySuggestion = (percent: number) => {
+        if (!suggestions) return
+        const multiplier = 1 + (percent / 100)
+
+        setFormData(prev => ({
+            ...prev,
+            revenueTarget: new Intl.NumberFormat('vi-VN').format(Math.round(suggestions.suggestions.revenue * multiplier)),
+            profitTarget: new Intl.NumberFormat('vi-VN').format(Math.round(suggestions.suggestions.profit * multiplier)),
+            ordersTarget: new Intl.NumberFormat('vi-VN').format(Math.round(suggestions.suggestions.orders * multiplier))
+        }))
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         const payload = {
@@ -300,17 +337,73 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                                         required
                                     />
                                 </div>
+                            </div>
+
+                            {/* Suggestions Block */}
+                            {suggestions && (
+                                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <h4 className="text-sm font-semibold text-blue-800 flex items-center">
+                                            <TrendingUp className="w-4 h-4 mr-1" />
+                                            Gợi ý từ dữ liệu {suggestions.period}
+                                        </h4>
+                                        {isLoadingSuggestions && <span className="text-xs text-blue-500">Đang tải...</span>}
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-4 text-sm mb-3">
+                                        <div>
+                                            <span className="text-gray-500 block text-xs">Doanh thu thực tế</span>
+                                            <span className="font-medium">{new Intl.NumberFormat('vi-VN', { notation: "compact" }).format(suggestions.suggestions.revenue)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-500 block text-xs">Lợi nhuận thực tế</span>
+                                            <span className="font-medium">{new Intl.NumberFormat('vi-VN', { notation: "compact" }).format(suggestions.suggestions.profit)}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-500 block text-xs">Đơn hàng thực tế</span>
+                                            <span className="font-medium">{suggestions.suggestions.orders}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={() => applySuggestion(0)} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 rounded text-xs hover:bg-blue-50 transition">
+                                            Giữ nguyên
+                                        </button>
+                                        <button type="button" onClick={() => applySuggestion(10)} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 rounded text-xs hover:bg-blue-50 transition">
+                                            Tăng trưởng 10%
+                                        </button>
+                                        <button type="button" onClick={() => applySuggestion(20)} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 rounded text-xs hover:bg-blue-50 transition">
+                                            Tăng trưởng 20%
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-3 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Doanh thu</label>
-                                    <input value={formData.revenueTarget} readOnly className="w-full p-2 border rounded bg-gray-50" />
+                                    <input
+                                        value={formData.revenueTarget}
+                                        onChange={e => setFormData({ ...formData, revenueTarget: formatNumber(e.target.value) })}
+                                        className="w-full p-2 border rounded"
+                                        placeholder="Nhập mục tiêu..."
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Lợi nhuận</label>
-                                    <input value={formData.profitTarget} readOnly className="w-full p-2 border rounded bg-gray-50" />
+                                    <input
+                                        value={formData.profitTarget}
+                                        onChange={e => setFormData({ ...formData, profitTarget: formatNumber(e.target.value) })}
+                                        className="w-full p-2 border rounded"
+                                        placeholder="Nhập mục tiêu..."
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Đơn hàng</label>
-                                    <input value={formData.ordersTarget} readOnly className="w-full p-2 border rounded bg-gray-50" />
+                                    <input
+                                        value={formData.ordersTarget}
+                                        onChange={e => setFormData({ ...formData, ordersTarget: formatNumber(e.target.value) })}
+                                        className="w-full p-2 border rounded"
+                                        placeholder="Nhập mục tiêu..."
+                                    />
                                 </div>
                             </div>
 
@@ -347,9 +440,10 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                             </div>
                         </form>
                     </div>
-                </div>
-            )}
-        </div>
+                </div >
+            )
+            }
+        </div >
     )
 }
 
