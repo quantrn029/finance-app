@@ -110,12 +110,12 @@ export function KPISuggestionClient({ initialOrders }: KPISuggestionClientProps)
             <div className="grid gap-6 md:grid-cols-3">
                 {suggestions.map((s) => (
                     <Card key={s.type} className={`relative overflow-hidden border-2 transition-all hover:shadow-lg ${s.type === 'moderate' ? 'border-blue-500 bg-blue-50/10' :
-                            s.type === 'aggressive' ? 'border-purple-500 bg-purple-50/10' :
-                                'border-green-500 bg-green-50/10'
+                        s.type === 'aggressive' ? 'border-purple-500 bg-purple-50/10' :
+                            'border-green-500 bg-green-50/10'
                         }`}>
                         <div className={`absolute top-0 right-0 px-3 py-1 text-xs font-bold text-white rounded-bl-lg ${s.type === 'moderate' ? 'bg-blue-500' :
-                                s.type === 'aggressive' ? 'bg-purple-500' :
-                                    'bg-green-500'
+                            s.type === 'aggressive' ? 'bg-purple-500' :
+                                'bg-green-500'
                             }`}>
                             {s.label}
                         </div>
@@ -128,17 +128,27 @@ export function KPISuggestionClient({ initialOrders }: KPISuggestionClientProps)
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="grid grid-cols-2 gap-4 text-center">
-                                <div className="p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                                    <div className="text-xs text-muted-foreground">Lợi nhuận</div>
-                                    <div className="font-bold text-emerald-600">{formatCurrency(s.profitTarget)}</div>
+                            <div className="p-3 bg-gray-50 rounded-lg">
+                                <div className="text-sm text-gray-500 mb-1">Doanh thu</div>
+                                <div className="text-xl font-bold text-gray-900">
+                                    {new Intl.NumberFormat('vi-VN').format(s.revenueTarget)} <span className="text-xs font-normal text-gray-500">đ</span>
                                 </div>
-                                <div className="p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-                                    <div className="text-xs text-muted-foreground">Đơn hàng</div>
-                                    <div className="font-bold text-blue-600">{s.ordersTarget}</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    AOV: {new Intl.NumberFormat('vi-VN').format(s.aovTarget)} đ
                                 </div>
                             </div>
-
+                            <div className="p-3 bg-gray-50 rounded-lg">
+                                <div className="text-sm text-gray-500 mb-1">Lợi nhuận</div>
+                                <div className="text-xl font-bold text-emerald-600">
+                                    {new Intl.NumberFormat('vi-VN').format(s.profitTarget)} <span className="text-xs font-normal text-gray-500">đ</span>
+                                </div>
+                            </div>
+                            <div className="p-3 bg-gray-50 rounded-lg">
+                                <div className="text-sm text-gray-500 mb-1">Đơn hàng</div>
+                                <div className="text-xl font-bold text-blue-600">
+                                    {new Intl.NumberFormat('vi-VN').format(s.ordersTarget)}
+                                </div>
+                            </div>
                             <div className="space-y-2">
                                 <h4 className="text-sm font-semibold flex items-center">
                                     <TrendingUp className="h-4 w-4 mr-2 text-gray-500" />
@@ -156,8 +166,8 @@ export function KPISuggestionClient({ initialOrders }: KPISuggestionClientProps)
 
                             <Button
                                 className={`w-full ${s.type === 'moderate' ? 'bg-blue-600 hover:bg-blue-700' :
-                                        s.type === 'aggressive' ? 'bg-purple-600 hover:bg-purple-700' :
-                                            'bg-green-600 hover:bg-green-700'
+                                    s.type === 'aggressive' ? 'bg-purple-600 hover:bg-purple-700' :
+                                        'bg-green-600 hover:bg-green-700'
                                     }`}
                                 onClick={() => handleApply(s)}
                             >

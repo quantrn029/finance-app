@@ -22,6 +22,7 @@ export interface KPISuggestion {
     revenueTarget: number
     profitTarget: number
     ordersTarget: number
+    aovTarget: number
     growthRate: number
     reasoning: string[]
 }
@@ -139,6 +140,7 @@ export function generateSuggestions(
             revenueTarget: adjustedBaseRevenue * 1.05,
             profitTarget: adjustedBaseProfit * 1.05,
             ordersTarget: adjustedBaseOrders * 1.05,
+            aovTarget: 0, // Calculated below
             reasoning: [
                 `Dựa trên trung bình 3 tháng gần nhất (${new Intl.NumberFormat('vi-VN').format(baselineRevenue)}đ)`,
                 `Điều chỉnh theo mùa vụ tháng ${targetMonthIdx + 1} (x${seasonFactor.toFixed(2)})`,
@@ -152,6 +154,7 @@ export function generateSuggestions(
             revenueTarget: adjustedBaseRevenue * 1.15,
             profitTarget: adjustedBaseProfit * 1.15,
             ordersTarget: adjustedBaseOrders * 1.15,
+            aovTarget: 0,
             reasoning: [
                 `Tăng trưởng 15% so với mức cơ bản`,
                 seasonFactor > 1.1 ? `Tận dụng cao điểm tháng ${targetMonthIdx + 1}` : `Duy trì đà tăng trưởng ổn định`
@@ -164,6 +167,7 @@ export function generateSuggestions(
             revenueTarget: adjustedBaseRevenue * 1.30,
             profitTarget: adjustedBaseProfit * 1.30,
             ordersTarget: adjustedBaseOrders * 1.30,
+            aovTarget: 0,
             reasoning: [
                 `Mục tiêu thách thức tăng trưởng 30%`,
                 `Phù hợp nếu có kế hoạch Marketing/Sale mạnh`
@@ -171,10 +175,15 @@ export function generateSuggestions(
         }
     ]
 
-    return scenarios.map(s => ({
-        ...s,
-        revenueTarget: Math.round(s.revenueTarget / 100000) * 100000, // Round to 100k
-        profitTarget: Math.round(s.profitTarget / 100000) * 100000,
-        ordersTarget: Math.round(s.ordersTarget)
-    }))
+    return scenarios.map(s => {
+        const rev = Math.round(s.revenueTarget / 100000) * 100000
+        const orders = Math.round(s.ordersTarget)
+        return {
+            ...s,
+            revenueTarget: rev,
+            profitTarget: Math.round(s.profitTarget / 100000) * 100000,
+            ordersTarget: orders,
+            aovTarget: orders > 0 ? Math.round(rev / orders) : 0
+        }
+    })
 }

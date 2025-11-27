@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Plus, Target, TrendingUp, DollarSign, ShoppingBag, AlertCircle, Calendar } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ComposedChart, Area } from 'recharts'
 import { format } from "date-fns"
@@ -77,20 +78,28 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
     })
 
     // Pre-fill form when opening
-    useEffect(() => {
-        // Check for URL params (from Suggestion Page)
-        const params = new URLSearchParams(window.location.search)
-        const createMode = params.get('create')
+    const searchParams = useSearchParams()
+    const router = useRouter()
+    const ignoreNextSync = useRef(false)
 
-        if (createMode === 'true' && !showForm) {
-            const revenue = params.get('revenue')
-            const profit = params.get('profit')
-            const orders = params.get('orders')
-            const period = params.get('period')
-            const date = params.get('date') // yyyy-MM-dd
+    useEffect(() => {
+        const createMode = searchParams.get('create')
+
+        if (createMode === 'true') {
+            const revenue = searchParams.get('revenue')
+            const profit = searchParams.get('profit')
+            const orders = searchParams.get('orders')
+            const period = searchParams.get('period')
+            const date = searchParams.get('date') // yyyy-MM-dd
 
             if (revenue && profit && orders) {
-                // Determine period string
+                // 1. Update Date to match target period
+                if (date) {
+                    const d = new Date(date)
+                    setSelectedDate(d)
+                }
+
+                // 2. Determine period string
                 let periodStr = ""
                 if (date) {
                     const d = new Date(date)
@@ -98,6 +107,7 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                     // Add logic for quarter/year if needed
                 }
 
+                // 3. Set Form Data
                 setFormData(prev => ({
                     ...prev,
                     period: periodStr || prev.period,
@@ -105,14 +115,25 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                     profitTarget: new Intl.NumberFormat('vi-VN').format(Number(profit)),
                     ordersTarget: new Intl.NumberFormat('vi-VN').format(Number(orders))
                 }))
+
+                // 4. Open Form & Prevent Sync
+                ignoreNextSync.current = true
                 setShowForm(true)
 
-                // Clean URL
-                window.history.replaceState({}, '', '/goals')
+                // 5. Clean URL
+                router.replace('/goals')
             }
         }
+    }, [searchParams, router])
 
+    // Sync with currentGoal when opening form (unless ignored)
+    useEffect(() => {
         if (showForm) {
+            if (ignoreNextSync.current) {
+                ignoreNextSync.current = false
+                return
+            }
+
             if (currentGoal) {
                 setFormData({
                     period: currentGoal.period,
@@ -126,7 +147,7 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                         ordersTarget: new Intl.NumberFormat('vi-VN').format(d.ordersTarget)
                     })) : formData.details
                 })
-            } else if (!createMode) { // Only reset if NOT in create mode from suggestion
+            } else {
                 // Reset form for new period
                 setFormData({
                     period: currentPeriod,
