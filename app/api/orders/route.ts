@@ -97,8 +97,8 @@ export async function GET(req: NextRequest) {
 
         const finalWhere = andConditions.length > 0 ? { AND: andConditions } : {}
 
-        // Execute queries (Count, Data, and Aggregations) in parallel
-        const [total, orders, aggregations] = await prisma.$transaction([
+        // Execute queries (Count, Data, Aggregations, and Adjustments) in parallel
+        const [total, orders, aggregations, adjustments] = await prisma.$transaction([
             prisma.order.count({ where: finalWhere }),
             prisma.order.findMany({
                 where: finalWhere,
@@ -120,8 +120,27 @@ export async function GET(req: NextRequest) {
                     netPayout: true,
                     platformFee: true
                 }
+            }),
+            // Fetch adjustment expenses (Platform category, System generated)
+            prisma.expense.aggregate({
+                where: {
+                    date: (startDate && endDate) ? {
+                        gte: new Date(startDate),
+                        lte: new Date(endDate)
+                    } : undefined,
+                    category: 'Platform',
+                    isSystem: true,
+                    // If platform filter is active, we should try to filter adjustments too
+                    // But adjustments store platform in 'subcategory'
+                    subcategory: platform && platform !== 'all' ? (platform === 'shopee' ? 'Shopee' : platform === 'tiktok' ? 'TikTok Shop' : undefined) : undefined
+                },
+                _sum: {
+                    amount: true
+                }
             })
         ])
+
+        const adjustmentTotal = adjustments._sum.amount || 0
 
         return NextResponse.json({
             orders,
@@ -134,7 +153,7 @@ export async function GET(req: NextRequest) {
             summary: {
                 totalRevenue: aggregations._sum.revenue || 0,
                 totalNet: aggregations._sum.netPayout || 0,
-                totalFees: aggregations._sum.platformFee || 0
+                totalFees: (aggregations._sum.platformFee || 0) + adjustmentTotal
             }
         })
 
