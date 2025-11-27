@@ -88,7 +88,29 @@ export default function OrderRow({ order, visibleColumns }: OrderRowProps) {
                 {isVisible('id') && (
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-2">
                         {expanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-                        {order.platformOrderId}
+                        {order.platform === 'Shopee' ? (
+                            <a
+                                href={`https://banhang.shopee.vn/portal/finance/income/${order.platformOrderId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-blue-600 hover:underline flex items-center gap-1"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {order.platformOrderId}
+                            </a>
+                        ) : order.platform === 'TikTok' || order.platform === 'TikTok Shop' ? (
+                            <a
+                                href={`https://seller-vn.tiktok.com/order/detail?order_no=${order.platformOrderId}&shop_region=VN`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:text-blue-600 hover:underline flex items-center gap-1"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {order.platformOrderId}
+                            </a>
+                        ) : (
+                            <span>{order.platformOrderId}</span>
+                        )}
                     </td>
                 )}
                 {isVisible('platform') && (
