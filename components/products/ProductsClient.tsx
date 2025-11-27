@@ -138,9 +138,14 @@ export function ProductsClient({ initialProducts, initialGlobalMetrics }: Produc
             if (res.ok) {
                 mutate('/api/products/analytics?period=all') // Refresh data
                 resetForm()
+                alert(editingProduct ? "Cập nhật thành công!" : "Thêm mới thành công!")
+            } else {
+                const errorData = await res.json()
+                throw new Error(errorData.error || "Failed to save product")
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to save product:", error)
+            alert(`Lỗi: ${error.message}`)
         }
     }
 
