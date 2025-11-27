@@ -105,8 +105,13 @@ export async function POST(req: NextRequest) {
         console.error("Create/update product error:", error)
 
         // Handle Unique Constraint Violation
-        if (error.code === 'P2002' && error.meta?.target?.includes('name')) {
-            return NextResponse.json({ error: "Tên sản phẩm đã tồn tại. Vui lòng chọn tên khác." }, { status: 409 })
+        if (error.code === 'P2002') {
+            if (error.meta?.target?.includes('name')) {
+                return NextResponse.json({ error: "Tên sản phẩm đã tồn tại. Vui lòng chọn tên khác." }, { status: 409 })
+            }
+            if (error.meta?.target?.includes('sku')) {
+                return NextResponse.json({ error: "Mã SKU đã tồn tại. Vui lòng chọn mã khác." }, { status: 409 })
+            }
         }
 
         return NextResponse.json({ error: error.message || "Failed to save product" }, { status: 500 })

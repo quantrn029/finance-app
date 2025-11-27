@@ -4,8 +4,13 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 async function main() {
+    try {
+        await prisma.$executeRawUnsafe('DEALLOCATE ALL')
+    } catch (e) { }
+
     const body: any = {
-        name: "Test Product " + Date.now(),
+        name: "Test Product SKU " + Date.now(),
+        sku: "TEST-SKU-DUPLICATE", // Hardcoded SKU
         materialCost: 100000,
         laborCost: 20000,
         costBreakdown: {
