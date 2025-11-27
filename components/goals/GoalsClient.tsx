@@ -16,12 +16,38 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
     const [activeTab, setActiveTab] = useState<'monthly' | 'quarterly' | 'yearly'>('monthly')
     const [showForm, setShowForm] = useState(false)
 
-    // Determine current period string
+    const [selectedDate, setSelectedDate] = useState(new Date())
+
+    // Determine current period string based on selectedDate
     const currentPeriod = activeTab === 'monthly'
-        ? format(new Date(), 'yyyy-MM')
+        ? format(selectedDate, 'yyyy-MM')
         : activeTab === 'quarterly'
-            ? `${new Date().getFullYear()}-Q${Math.floor(new Date().getMonth() / 3) + 1}`
-            : `${new Date().getFullYear()}`
+            ? `${selectedDate.getFullYear()}-Q${Math.floor(selectedDate.getMonth() / 3) + 1}`
+            : `${selectedDate.getFullYear()}`
+
+    // Navigation Handlers
+    const handlePrev = () => {
+        const newDate = new Date(selectedDate)
+        if (activeTab === 'monthly') newDate.setMonth(newDate.getMonth() - 1)
+        else if (activeTab === 'quarterly') newDate.setMonth(newDate.getMonth() - 3)
+        else newDate.setFullYear(newDate.getFullYear() - 1)
+        setSelectedDate(newDate)
+    }
+
+    const handleNext = () => {
+        const newDate = new Date(selectedDate)
+        if (activeTab === 'monthly') newDate.setMonth(newDate.getMonth() + 1)
+        else if (activeTab === 'quarterly') newDate.setMonth(newDate.getMonth() + 3)
+        else newDate.setFullYear(newDate.getFullYear() + 1)
+        setSelectedDate(newDate)
+    }
+
+    // Display Label
+    const periodLabel = activeTab === 'monthly'
+        ? `Tháng ${selectedDate.getMonth() + 1}/${selectedDate.getFullYear()}`
+        : activeTab === 'quarterly'
+            ? `Quý ${Math.floor(selectedDate.getMonth() / 3) + 1}/${selectedDate.getFullYear()}`
+            : `Năm ${selectedDate.getFullYear()}`
 
     // Fetch Goals List (Lightweight)
     const { data: goalsData, mutate: mutateGoals } = useSWR(`/api/goals`, fetcher, {
@@ -52,21 +78,35 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
 
     // Pre-fill form when opening
     useEffect(() => {
-        if (showForm && currentGoal) {
-            setFormData({
-                period: currentGoal.period,
-                revenueTarget: new Intl.NumberFormat('vi-VN').format(currentGoal.revenueTarget),
-                profitTarget: new Intl.NumberFormat('vi-VN').format(currentGoal.profitTarget),
-                ordersTarget: new Intl.NumberFormat('vi-VN').format(currentGoal.ordersTarget),
-                details: currentGoal.details ? currentGoal.details.map((d: any) => ({
-                    platform: d.platform,
-                    revenueTarget: new Intl.NumberFormat('vi-VN').format(d.revenueTarget),
-                    profitTarget: new Intl.NumberFormat('vi-VN').format(d.profitTarget),
-                    ordersTarget: new Intl.NumberFormat('vi-VN').format(d.ordersTarget)
-                })) : formData.details
-            })
-        } else if (showForm && !currentGoal) {
-            setFormData(prev => ({ ...prev, period: currentPeriod }))
+        if (showForm) {
+            if (currentGoal) {
+                setFormData({
+                    period: currentGoal.period,
+                    revenueTarget: new Intl.NumberFormat('vi-VN').format(currentGoal.revenueTarget),
+                    profitTarget: new Intl.NumberFormat('vi-VN').format(currentGoal.profitTarget),
+                    ordersTarget: new Intl.NumberFormat('vi-VN').format(currentGoal.ordersTarget),
+                    details: currentGoal.details ? currentGoal.details.map((d: any) => ({
+                        platform: d.platform,
+                        revenueTarget: new Intl.NumberFormat('vi-VN').format(d.revenueTarget),
+                        profitTarget: new Intl.NumberFormat('vi-VN').format(d.profitTarget),
+                        ordersTarget: new Intl.NumberFormat('vi-VN').format(d.ordersTarget)
+                    })) : formData.details
+                })
+            } else {
+                // Reset form for new period
+                setFormData({
+                    period: currentPeriod,
+                    revenueTarget: "",
+                    profitTarget: "",
+                    ordersTarget: "",
+                    details: [
+                        { platform: 'Shopee', revenueTarget: "", profitTarget: "", ordersTarget: "" },
+                        { platform: 'TikTok', revenueTarget: "", profitTarget: "", ordersTarget: "" },
+                        { platform: 'Facebook', revenueTarget: "", profitTarget: "", ordersTarget: "" },
+                        { platform: 'Instagram', revenueTarget: "", profitTarget: "", ordersTarget: "" },
+                    ]
+                })
+            }
         }
     }, [showForm, currentGoal, currentPeriod])
 
@@ -192,7 +232,20 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                     <h2 className="text-3xl font-bold tracking-tight">Mục tiêu</h2>
                     <p className="text-gray-500">Theo dõi tiến độ tăng trưởng.</p>
                 </div>
-                <div className="flex gap-4">
+                <div className="flex gap-4 items-center">
+                    {/* Period Navigator */}
+                    <div className="flex items-center bg-white border rounded-lg p-1 shadow-sm">
+                        <button onClick={handlePrev} className="p-1 hover:bg-gray-100 rounded">
+                            <span className="sr-only">Previous</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-left"><path d="m15 18-6-6 6-6" /></svg>
+                        </button>
+                        <span className="px-3 text-sm font-medium min-w-[120px] text-center">{periodLabel}</span>
+                        <button onClick={handleNext} className="p-1 hover:bg-gray-100 rounded">
+                            <span className="sr-only">Next</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-right"><path d="m9 18 6-6-6-6" /></svg>
+                        </button>
+                    </div>
+
                     <div className="flex bg-gray-100 p-1 rounded-lg">
                         {['monthly', 'quarterly', 'yearly'].map(tab => (
                             <button
