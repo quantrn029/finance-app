@@ -3,35 +3,20 @@ import { NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
 
 export async function GET() {
-    const startDate = new Date('2025-11-01')
-    const endDate = new Date('2025-12-01')
-
-    // 1. Sum Platform Fees from Orders
-    const ordersAgg = await prisma.order.aggregate({
-        where: {
-            date: { gte: startDate, lt: endDate }
-        },
-        _sum: {
-            platformFee: true
-        }
+    const shopeeCount = await prisma.order.count({
+        where: { platform: 'Shopee' }
     })
-    const orderFees = ordersAgg._sum.platformFee || 0
+    console.log("DEBUG: Shopee Count:", shopeeCount)
 
-    // 2. Sum Platform Expenses from Expense Table
-    const expenses = await prisma.expense.findMany({
-        where: {
-            date: { gte: startDate, lt: endDate },
-            category: 'Platform'
-        }
+    const shopeeSample = await prisma.order.findMany({
+        where: { platform: 'Shopee' },
+        take: 5,
+        orderBy: { date: 'desc' }
     })
-
-    const expenseTotal = expenses.reduce((sum, e) => sum + e.amount, 0)
+    console.log("DEBUG: Shopee Sample:", JSON.stringify(shopeeSample))
 
     return NextResponse.json({
-        orderFees,
-        expenseTotal,
-        expenses,
-        totalExpected: orderFees + expenseTotal,
-        discrepancy: expenseTotal
+        shopeeCount,
+        shopeeSample
     })
 }

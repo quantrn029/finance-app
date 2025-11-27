@@ -78,6 +78,40 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
 
     // Pre-fill form when opening
     useEffect(() => {
+        // Check for URL params (from Suggestion Page)
+        const params = new URLSearchParams(window.location.search)
+        const createMode = params.get('create')
+
+        if (createMode === 'true' && !showForm) {
+            const revenue = params.get('revenue')
+            const profit = params.get('profit')
+            const orders = params.get('orders')
+            const period = params.get('period')
+            const date = params.get('date') // yyyy-MM-dd
+
+            if (revenue && profit && orders) {
+                // Determine period string
+                let periodStr = ""
+                if (date) {
+                    const d = new Date(date)
+                    if (period === 'month') periodStr = format(d, 'yyyy-MM')
+                    // Add logic for quarter/year if needed
+                }
+
+                setFormData(prev => ({
+                    ...prev,
+                    period: periodStr || prev.period,
+                    revenueTarget: new Intl.NumberFormat('vi-VN').format(Number(revenue)),
+                    profitTarget: new Intl.NumberFormat('vi-VN').format(Number(profit)),
+                    ordersTarget: new Intl.NumberFormat('vi-VN').format(Number(orders))
+                }))
+                setShowForm(true)
+
+                // Clean URL
+                window.history.replaceState({}, '', '/goals')
+            }
+        }
+
         if (showForm) {
             if (currentGoal) {
                 setFormData({
@@ -92,7 +126,7 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                         ordersTarget: new Intl.NumberFormat('vi-VN').format(d.ordersTarget)
                     })) : formData.details
                 })
-            } else {
+            } else if (!createMode) { // Only reset if NOT in create mode from suggestion
                 // Reset form for new period
                 setFormData({
                     period: currentPeriod,
@@ -281,6 +315,12 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                             </button>
                         ))}
                     </div>
+                    <button
+                        onClick={() => window.location.href = '/goals/suggest'}
+                        className="flex items-center px-4 py-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 border border-purple-200"
+                    >
+                        <TrendingUp className="mr-2 h-4 w-4" /> Gợi ý KPI
+                    </button>
                     <button
                         onClick={() => setShowForm(true)}
                         className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
