@@ -131,27 +131,41 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
-        const payload = {
-            period: formData.period,
-            type: activeTab,
-            revenueTarget: parseNumber(formData.revenueTarget),
-            profitTarget: parseNumber(formData.profitTarget),
-            ordersTarget: parseNumber(formData.ordersTarget),
-            details: formData.details.map(d => ({
-                platform: d.platform,
-                revenueTarget: parseNumber(d.revenueTarget),
-                profitTarget: parseNumber(d.profitTarget),
-                ordersTarget: parseNumber(d.ordersTarget)
-            }))
-        }
+        try {
+            const payload = {
+                period: formData.period,
+                type: activeTab,
+                revenueTarget: parseNumber(formData.revenueTarget),
+                profitTarget: parseNumber(formData.profitTarget),
+                ordersTarget: parseNumber(formData.ordersTarget),
+                details: formData.details.map(d => ({
+                    platform: d.platform,
+                    revenueTarget: parseNumber(d.revenueTarget),
+                    profitTarget: parseNumber(d.profitTarget),
+                    ordersTarget: parseNumber(d.ordersTarget)
+                }))
+            }
 
-        await fetch('/api/goals', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        })
-        mutateGoals()
-        setShowForm(false)
+            console.log("Submitting goal:", payload)
+
+            const res = await fetch('/api/goals', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+
+            if (!res.ok) {
+                const errorData = await res.json()
+                throw new Error(errorData.error || "Failed to save goal")
+            }
+
+            await mutateGoals()
+            setShowForm(false)
+            alert("Đã lưu mục tiêu thành công!")
+        } catch (error: any) {
+            console.error("Save goal error:", error)
+            alert(`Lỗi khi lưu mục tiêu: ${error.message}`)
+        }
     }
 
     // Render Logic
