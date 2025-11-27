@@ -3,18 +3,21 @@
 import { useState } from "react"
 import { Upload, CheckCircle, AlertCircle, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { parseCSV, parseExcel, mapShopeeData, mapTikTokData, mapFacebookInstagramData } from "@/lib/parsers"
 
 export default function ImportPage() {
     const [platform, setPlatform] = useState<'shopee' | 'tiktok' | 'direct'>('shopee')
     const [file, setFile] = useState<File | null>(null)
     const [status, setStatus] = useState<"idle" | "uploading" | "success" | "error">("idle")
     const [message, setMessage] = useState("")
+    const [progress, setProgress] = useState(0)
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
             setFile(e.target.files[0])
             setStatus("idle")
             setMessage("")
+            setProgress(0)
         }
     }
 
@@ -22,49 +25,99 @@ export default function ImportPage() {
         if (!file) return
 
         setStatus("uploading")
-        const formData = new FormData()
-        formData.append("file", file)
-        formData.append("platform", platform)
+        setMessage("Đang đọc file...")
+        setProgress(0)
 
         try {
-            const res = await fetch("/api/import", {
-                method: "POST",
-                body: formData,
-            })
+            // 1. Read File
+            const buffer = await file.arrayBuffer()
+            let orders: any[] = []
+            let tiktokReportsFees: any = null
 
-            let data
-            const contentType = res.headers.get("content-type")
-            if (contentType && contentType.includes("application/json")) {
-                data = await res.json()
+            // 2. Parse File (Client-Side)
+            if (file.name.endsWith(".csv")) {
+                const text = new TextDecoder("utf-8").decode(buffer)
+                const rawData = await parseCSV(text)
+                if (platform === "shopee") {
+                    orders = mapShopeeData(rawData)
+                } else if (platform === "direct") {
+                    const headers = rawData[0]
+                    const rows = rawData.slice(1).map(row => {
+                        const obj: any = {}
+                        headers.forEach((header: string, i: number) => {
+                            obj[header] = row[i]
+                        })
+                        return obj
+                    })
+                    orders = mapFacebookInstagramData(rows)
+                }
             } else {
-                // Handle non-JSON response (e.g. 413 Payload Too Large, 504 Gateway Timeout)
-                const text = await res.text()
-                throw new Error(`Upload failed: ${res.status} ${res.statusText}${text ? ` - ${text.slice(0, 100)}` : ''}`)
+                // Excel
+                const result = parseExcel(buffer, platform)
+                const rawData = result.rawData
+                tiktokReportsFees = result.tiktokReportsFees
+
+                if (platform === "shopee") {
+                    orders = mapShopeeData(rawData)
+                } else if (platform === "tiktok") {
+                    orders = mapTikTokData(rawData)
+                }
             }
 
-            if (!res.ok) {
-                throw new Error(data.error || "Upload failed")
+            console.log(`Parsed ${orders.length} orders on client side`)
+
+            if (orders.length === 0) {
+                throw new Error("Không tìm thấy đơn hàng nào trong file")
+            }
+
+            // 3. Batch Upload
+            const BATCH_SIZE = 500
+            const totalBatches = Math.ceil(orders.length / BATCH_SIZE)
+            let totalSaved = 0
+
+            for (let i = 0; i < totalBatches; i++) {
+                const batch = orders.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE)
+                setMessage(`Đang tải lên batch ${i + 1}/${totalBatches}...`)
+
+                // For the first batch, include tiktokReportsFees if available
+                // Note: The API currently expects tiktokReportsFees to be handled via file upload logic or passed in JSON?
+                // We modified API to accept JSON but we didn't explicitly add tiktokReportsFees to the JSON body schema in the API.
+                // However, the API logic for JSON path doesn't seem to use tiktokReportsFees yet?
+                // Wait, I fixed the API to declare `tiktokReportsFees` but I didn't add logic to read it from `req.json()`!
+                // I need to update the API to read `tiktokReportsFees` from the body if present.
+                // For now, let's send it and I'll fix the API in the next step if needed.
+                // Actually, let's just send it in the body.
+
+                const payload = {
+                    platform,
+                    fileName: file.name,
+                    orders: batch,
+                    tiktokReportsFees: (i === 0 && platform === 'tiktok') ? tiktokReportsFees : null
+                }
+
+                const res = await fetch("/api/import", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                })
+
+                if (!res.ok) {
+                    const errorData = await res.json()
+                    throw new Error(errorData.error || `Upload failed at batch ${i + 1}`)
+                }
+
+                const data = await res.json()
+                totalSaved += data.count || 0
+                setProgress(Math.round(((i + 1) / totalBatches) * 100))
             }
 
             setStatus("success")
+            setMessage(`Đã nhập thành công ${totalSaved} đơn hàng!`)
 
-            // Build detailed debug message
-            let debugMsg = ""
-            if (data.debug) {
-                debugMsg += `\n📊 Parsed: ${data.debug.totalRowsParsed} rows`
-                debugMsg += `\n✅ Saved: ${data.debug.saved || 0}`
-                debugMsg += `\n⏭️ Skipped: ${data.debug.skipped || 0}`
-                if (data.debug.firstError) {
-                    debugMsg += `\n❌ First Error: ${data.debug.firstError}`
-                }
-                console.log("Import Debug Info:", data.debug)
-            }
-
-            setMessage(`Đã nhập thành công ${data.count} đơn hàng!${debugMsg}`)
         } catch (error: any) {
-            setStatus("error")
-            setMessage(error.message)
             console.error("Import error:", error)
+            setStatus("error")
+            setMessage(error.message || "Lỗi khi xử lý file")
         }
     }
 
@@ -183,6 +236,12 @@ export default function ImportPage() {
                             </div>
                         </div>
 
+                        {status === "uploading" && (
+                            <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                <div className="bg-emerald-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                            </div>
+                        )}
+
                         {status === "error" && (
                             <div className="p-4 bg-red-50 text-red-600 rounded-lg flex items-center text-sm">
                                 <AlertCircle className="h-4 w-4 mr-2 flex-shrink-0" />
@@ -205,7 +264,7 @@ export default function ImportPage() {
                             {status === "uploading" ? (
                                 <>
                                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Đang xử lý...
+                                    {message || "Đang xử lý..."}
                                 </>
                             ) : (
                                 "Tải lên và Phân tích"

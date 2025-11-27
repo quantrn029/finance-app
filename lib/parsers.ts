@@ -1,18 +1,10 @@
 import Papa from "papaparse"
 import * as XLSX from "xlsx"
 import { parse, isValid } from 'date-fns'
-import fs from 'fs'
-import path from 'path'
-
 // Debug logger
-const LOG_FILE = path.join(process.cwd(), 'debug_log.txt')
 function logDebug(message: string, data?: any) {
-    const timestamp = new Date().toISOString()
-    const logMsg = `[${timestamp}] ${message}\n${data ? JSON.stringify(data, null, 2) + '\n' : ''}`
-    try {
-        fs.appendFileSync(LOG_FILE, logMsg)
-    } catch (e) {
-        console.error("Failed to write to debug log:", e)
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`[DEBUG] ${message}`, data || '')
     }
 }
 
@@ -678,5 +670,82 @@ export async function parseCSV(csvText: string): Promise<any[][]> {
             complete: (results: any) => resolve(results.data as any[][]),
             error: (error: any) => reject(error),
         })
+    })
+}
+
+export function parseExcel(buffer: ArrayBuffer, platform: string): { rawData: any[][], tiktokReportsFees: any | null } {
+    const workbook = XLSX.read(buffer, { type: "array" })
+    console.log("DEBUG: Workbook SheetNames:", workbook.SheetNames)
+
+    let sheetName = workbook.SheetNames[0]
+    let tiktokReportsFees: any = null
+
+    // Prefer "Doanh thu" sheet for Shopee Income files
+    if (platform === "shopee") {
+        const incomeSheet = workbook.SheetNames.find((n: string) => n.toLowerCase().includes("doanh thu") || n.toLowerCase().includes("income"))
+        if (incomeSheet) {
+            sheetName = incomeSheet
+            console.log("DEBUG: Selected Shopee Income sheet:", sheetName)
+        }
+    }
+    // Prefer "Order details" sheet for TikTok Income files
+    else if (platform === "tiktok") {
+        const orderDetailsSheet = workbook.SheetNames.find((n: string) => n.toLowerCase().includes("order details") || n.toLowerCase().includes("chi tiết đơn hàng"))
+        if (orderDetailsSheet) {
+            sheetName = orderDetailsSheet
+            console.log("DEBUG: Selected TikTok Order Details sheet:", sheetName)
+
+            // FIX: TikTok files often have incorrect !ref range (e.g. A1:U2)
+            // We force update the range to ensure we read all data
+            const sheet = workbook.Sheets[sheetName]
+            if (sheet['!ref']) {
+                // Decode range and force end row to a large number (e.g. 5000) or calculate actual size
+                // Simple fix: just extend the range significantly
+                const range = XLSX.utils.decode_range(sheet['!ref'])
+                range.e.r = Math.max(range.e.r, 5000) // Read up to 5000 rows
+                sheet['!ref'] = XLSX.utils.encode_range(range)
+            }
+        }
+
+        // Parse Reports sheet for detailed fees
+        // Robust search for Reports sheet
+        const reportsSheetName = workbook.SheetNames.find((n: string) =>
+            n.toLowerCase().includes('report') ||
+            n.toLowerCase().includes('báo cáo') ||
+            n.toLowerCase().includes('tổng quan')
+        )
+
+        const reportsSheet = reportsSheetName ? workbook.Sheets[reportsSheetName] : undefined
+
+        if (reportsSheet) {
+            const reportsData = XLSX.utils.sheet_to_json(reportsSheet, { header: 1 }) as any[][]
+            tiktokReportsFees = parseTikTokReports(reportsData)
+            console.log("DEBUG TIKTOK: Parsed Reports fees:", tiktokReportsFees)
+        }
+    }
+
+    const worksheet = workbook.Sheets[sheetName]
+    const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
+
+    return { rawData, tiktokReportsFees }
+}
+export function mapFacebookInstagramData(data: any[]): ParsedOrder[] {
+    return data.map((row: any) => {
+        const revenue = parseCurrency(row["Revenue"] || row["Amount"] || row["Total"] || 0)
+        const shippingFee = parseCurrency(row["Shipping Fee"] || row["Shipping"] || 0)
+        const netPayout = revenue - shippingFee // Simplified assumption
+
+        return {
+            platformOrderId: String(row["Order ID"] || row["ID"] || Date.now().toString()),
+            date: row["Date"] ? new Date(row["Date"]) : new Date(),
+            revenue: revenue,
+            platformFee: 0, // Manual orders usually have no platform fee unless specified
+            shippingFee: shippingFee,
+            netPayout: netPayout,
+            status: "Completed",
+            sku: row["SKU"] || undefined,
+            productName: row["Product Name"] || row["Item"] || undefined,
+            quantity: Number(row["Quantity"] || 1)
+        }
     })
 }

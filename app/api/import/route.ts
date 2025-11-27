@@ -6,133 +6,152 @@ import * as XLSX from "xlsx"
 
 export async function POST(req: NextRequest) {
     try {
-        const formData = await req.formData()
-        const file = formData.get("file") as File
-        const platform = formData.get("platform") as string
-
-        if (!file) {
-            return NextResponse.json({ error: "No file uploaded" }, { status: 400 })
-        }
-
-        const buffer = await file.arrayBuffer()
-        let rawData: any[] = []
-        let workbook: any = null // For Excel files
+        let orders: any[] = []
+        let platform = ""
+        let fileProcessed = "JSON Batch"
         let tiktokReportsFees: any = null // Store TikTok detailed fees from Reports sheet
 
-        // Determine file type and parse to raw 2D array
-        if (file.name.endsWith(".csv")) {
-            // Try to detect encoding or fallback to UTF-8
-            // Shopee files might be UTF-8 with BOM or UTF-16LE
-            let text = ""
-            try {
-                text = new TextDecoder("utf-8", { fatal: false }).decode(buffer)
-                // Check for common replacement character  which indicates encoding issues
-                if (text.includes("") && text.length < 1000) {
-                    console.warn("DEBUG: UTF-8 decoding produced replacement characters, trying UTF-16LE")
+        const contentType = req.headers.get("content-type") || ""
+
+        if (contentType.includes("application/json")) {
+            // Handle JSON payload (Client-side parsed)
+            const body = await req.json()
+            orders = body.orders || []
+            platform = body.platform || ""
+            fileProcessed = body.fileName || "batch_upload"
+            tiktokReportsFees = body.tiktokReportsFees || null
+
+            if (!orders.length) {
+                return NextResponse.json({ error: "No orders provided" }, { status: 400 })
+            }
+        } else {
+            // Handle FormData (Server-side parsing - Legacy/Small files)
+            const formData = await req.formData()
+            const file = formData.get("file") as File
+            platform = formData.get("platform") as string
+            fileProcessed = file?.name || "unknown"
+
+            if (!file) {
+                return NextResponse.json({ error: "No file uploaded" }, { status: 400 })
+            }
+
+            const buffer = await file.arrayBuffer()
+            let rawData: any[] = []
+            let workbook: any = null // For Excel files
+
+            // Determine file type and parse to raw 2D array
+            if (file.name.endsWith(".csv")) {
+                // Try to detect encoding or fallback to UTF-8
+                // Shopee files might be UTF-8 with BOM or UTF-16LE
+                let text = ""
+                try {
+                    text = new TextDecoder("utf-8", { fatal: false }).decode(buffer)
+                    // Check for common replacement character  which indicates encoding issues
+                    if (text.includes("") && text.length < 1000) {
+                        console.warn("DEBUG: UTF-8 decoding produced replacement characters, trying UTF-16LE")
+                        text = new TextDecoder("utf-16le").decode(buffer)
+                    }
+                } catch (e) {
+                    console.warn("DEBUG: UTF-8 decoding failed, trying UTF-16LE")
                     text = new TextDecoder("utf-16le").decode(buffer)
                 }
-            } catch (e) {
-                console.warn("DEBUG: UTF-8 decoding failed, trying UTF-16LE")
-                text = new TextDecoder("utf-16le").decode(buffer)
-            }
 
-            // Log first few lines for debugging
-            console.log("DEBUG: File Content Preview (First 500 chars):")
-            console.log(text.substring(0, 500))
+                // Log first few lines for debugging
+                console.log("DEBUG: File Content Preview (First 500 chars):")
+                console.log(text.substring(0, 500))
 
-            rawData = await parseCSV(text)
-        } else if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
-            workbook = XLSX.read(buffer, { type: "array" })
-            console.log("DEBUG: Workbook SheetNames:", workbook.SheetNames)
+                rawData = await parseCSV(text)
+            } else if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+                workbook = XLSX.read(buffer, { type: "array" })
+                console.log("DEBUG: Workbook SheetNames:", workbook.SheetNames)
 
-            let sheetName = workbook.SheetNames[0]
-            // Duplicate declaration removed – using outer variable declared at line 20
+                let sheetName = workbook.SheetNames[0]
+                // Duplicate declaration removed – using outer variable declared at line 20
 
-            // Prefer "Doanh thu" sheet for Shopee Income files
-            if (platform === "shopee") {
-                const incomeSheet = workbook.SheetNames.find((n: string) => n.toLowerCase().includes("doanh thu") || n.toLowerCase().includes("income"))
-                if (incomeSheet) {
-                    sheetName = incomeSheet
-                    console.log("DEBUG: Selected Shopee Income sheet:", sheetName)
+                // Prefer "Doanh thu" sheet for Shopee Income files
+                if (platform === "shopee") {
+                    const incomeSheet = workbook.SheetNames.find((n: string) => n.toLowerCase().includes("doanh thu") || n.toLowerCase().includes("income"))
+                    if (incomeSheet) {
+                        sheetName = incomeSheet
+                        console.log("DEBUG: Selected Shopee Income sheet:", sheetName)
+                    }
                 }
-            }
-            // Prefer "Order details" sheet for TikTok Income files
-            else if (platform === "tiktok") {
-                const orderDetailsSheet = workbook.SheetNames.find((n: string) => n.toLowerCase().includes("order details") || n.toLowerCase().includes("chi tiết đơn hàng"))
-                if (orderDetailsSheet) {
-                    sheetName = orderDetailsSheet
-                    console.log("DEBUG: Selected TikTok Order Details sheet:", sheetName)
+                // Prefer "Order details" sheet for TikTok Income files
+                else if (platform === "tiktok") {
+                    const orderDetailsSheet = workbook.SheetNames.find((n: string) => n.toLowerCase().includes("order details") || n.toLowerCase().includes("chi tiết đơn hàng"))
+                    if (orderDetailsSheet) {
+                        sheetName = orderDetailsSheet
+                        console.log("DEBUG: Selected TikTok Order Details sheet:", sheetName)
 
-                    // FIX: TikTok files often have incorrect !ref range (e.g. A1:U2)
-                    // We force update the range to ensure we read all data
-                    const sheet = workbook.Sheets[sheetName]
-                    if (sheet['!ref']) {
-                        console.log("DEBUG: Original !ref:", sheet['!ref'])
-                        // Decode range and force end row to a large number (e.g. 5000) or calculate actual size
-                        // Simple fix: just extend the range significantly
-                        const range = XLSX.utils.decode_range(sheet['!ref'])
-                        range.e.r = Math.max(range.e.r, 5000) // Read up to 5000 rows
-                        sheet['!ref'] = XLSX.utils.encode_range(range)
-                        console.log("DEBUG: Updated !ref:", sheet['!ref'])
+                        // FIX: TikTok files often have incorrect !ref range (e.g. A1:U2)
+                        // We force update the range to ensure we read all data
+                        const sheet = workbook.Sheets[sheetName]
+                        if (sheet['!ref']) {
+                            console.log("DEBUG: Original !ref:", sheet['!ref'])
+                            // Decode range and force end row to a large number (e.g. 5000) or calculate actual size
+                            // Simple fix: just extend the range significantly
+                            const range = XLSX.utils.decode_range(sheet['!ref'])
+                            range.e.r = Math.max(range.e.r, 5000) // Read up to 5000 rows
+                            sheet['!ref'] = XLSX.utils.encode_range(range)
+                            console.log("DEBUG: Updated !ref:", sheet['!ref'])
+                        }
+                    }
+
+                    // Parse Reports sheet for detailed fees
+                    console.log("DEBUG TIKTOK: Available sheet names:", workbook.SheetNames)
+
+                    // Robust search for Reports sheet
+                    const reportsSheetName = workbook.SheetNames.find((n: string) =>
+                        n.toLowerCase().includes('report') ||
+                        n.toLowerCase().includes('báo cáo') ||
+                        n.toLowerCase().includes('tổng quan')
+                    )
+
+                    const reportsSheet = reportsSheetName ? workbook.Sheets[reportsSheetName] : undefined
+                    console.log("DEBUG TIKTOK: Reports sheet found?", !!reportsSheet, "Name:", reportsSheetName)
+
+                    if (reportsSheet) {
+                        const reportsData = XLSX.utils.sheet_to_json(reportsSheet, { header: 1 }) as any[][]
+                        console.log("DEBUG TIKTOK: Reports data rows:", reportsData.length)
+                        const { parseTikTokReports } = await import("@/lib/parsers")
+                        tiktokReportsFees = parseTikTokReports(reportsData)
+                        console.log("DEBUG TIKTOK: Parsed Reports fees:", tiktokReportsFees)
+                    } else {
+                        console.log("DEBUG TIKTOK: Reports sheet NOT FOUND! Available:", workbook.SheetNames)
                     }
                 }
 
-                // Parse Reports sheet for detailed fees
-                console.log("DEBUG TIKTOK: Available sheet names:", workbook.SheetNames)
-
-                // Robust search for Reports sheet
-                const reportsSheetName = workbook.SheetNames.find((n: string) =>
-                    n.toLowerCase().includes('report') ||
-                    n.toLowerCase().includes('báo cáo') ||
-                    n.toLowerCase().includes('tổng quan')
-                )
-
-                const reportsSheet = reportsSheetName ? workbook.Sheets[reportsSheetName] : undefined
-                console.log("DEBUG TIKTOK: Reports sheet found?", !!reportsSheet, "Name:", reportsSheetName)
-
-                if (reportsSheet) {
-                    const reportsData = XLSX.utils.sheet_to_json(reportsSheet, { header: 1 }) as any[][]
-                    console.log("DEBUG TIKTOK: Reports data rows:", reportsData.length)
-                    const { parseTikTokReports } = await import("@/lib/parsers")
-                    tiktokReportsFees = parseTikTokReports(reportsData)
-                    console.log("DEBUG TIKTOK: Parsed Reports fees:", tiktokReportsFees)
-                } else {
-                    console.log("DEBUG TIKTOK: Reports sheet NOT FOUND! Available:", workbook.SheetNames)
-                }
+                const worksheet = workbook.Sheets[sheetName]
+                rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
+            } else {
+                return NextResponse.json({ error: "Unsupported file format. Please upload CSV or Excel." }, { status: 400 })
             }
 
-            const worksheet = workbook.Sheets[sheetName]
-            rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
-        } else {
-            return NextResponse.json({ error: "Unsupported file format. Please upload CSV or Excel." }, { status: 400 })
-        }
+            console.log("DEBUG: Raw Data Sample (First Row):", rawData[0])
+            console.log("DEBUG: Total Rows:", rawData.length)
 
-        console.log("DEBUG: Raw Data Sample (First Row):", rawData[0])
-        console.log("DEBUG: Total Rows:", rawData.length)
-
-        // Map raw data to our schema
-        let orders = []
-
-        if (platform === "shopee") {
-            orders = mapShopeeData(rawData)
-        } else if (platform === "tiktok") {
-            // For TikTok, rawData contains Order details
-            orders = mapTikTokData(rawData)
-            // tiktokReportsFees already parsed from Reports sheet above
-        } else if (platform === "direct" || platform === "facebook" || platform === "instagram") {
-            // Direct orders: Facebook/Instagram manual CSV import
-            // Convert rawData (2D array) to objects for mapFacebookInstagramData
-            const headers = rawData[0]
-            const rows = rawData.slice(1).map(row => {
-                const obj: any = {}
-                headers.forEach((header: string, i: number) => {
-                    obj[header] = row[i]
+            // Map raw data to our schema
+            if (platform === "shopee") {
+                orders = mapShopeeData(rawData)
+            } else if (platform === "tiktok") {
+                // For TikTok, rawData contains Order details
+                orders = mapTikTokData(rawData)
+                // tiktokReportsFees already parsed from Reports sheet above
+            } else if (platform === "direct" || platform === "facebook" || platform === "instagram") {
+                // Direct orders: Facebook/Instagram manual CSV import
+                // Convert rawData (2D array) to objects for mapFacebookInstagramData
+                const headers = rawData[0]
+                const rows = rawData.slice(1).map(row => {
+                    const obj: any = {}
+                    headers.forEach((header: string, i: number) => {
+                        obj[header] = row[i]
+                    })
+                    return obj
                 })
-                return obj
-            })
-            orders = mapFacebookInstagramData(rows)
-        } else {
-            return NextResponse.json({ error: "Invalid platform" }, { status: 400 })
+                orders = mapFacebookInstagramData(rows)
+            } else {
+                return NextResponse.json({ error: "Invalid platform" }, { status: 400 })
+            }
         }
 
         // Save to DB
@@ -449,7 +468,7 @@ export async function POST(req: NextRequest) {
                 skipped,
                 firstError,
                 platform,
-                fileProcessed: file.name
+                fileProcessed: fileProcessed
             }
         })
     } catch (error: any) {
