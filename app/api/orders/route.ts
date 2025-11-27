@@ -129,7 +129,8 @@ export async function GET(req: NextRequest) {
                         lte: new Date(endDate)
                     } : undefined,
                     category: 'Platform',
-                    isSystem: true,
+                    // Include both System and Manual expenses for Platform category
+                    // isSystem: true, // REMOVED to include manual adjustments
                     // If platform filter is active, we should try to filter adjustments too
                     // But adjustments store platform in 'subcategory'
                     subcategory: platform && platform !== 'all' ? (platform === 'shopee' ? 'Shopee' : platform === 'tiktok' ? 'TikTok Shop' : undefined) : undefined
