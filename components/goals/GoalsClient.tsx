@@ -363,7 +363,7 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                                             <span className="font-medium">{suggestions.suggestions.orders}</span>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-2 flex-wrap">
                                         <button type="button" onClick={() => applySuggestion(0)} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 rounded text-xs hover:bg-blue-50 transition">
                                             Giữ nguyên
                                         </button>
@@ -373,6 +373,27 @@ export function GoalsClient({ initialGoals }: GoalsClientProps) {
                                         <button type="button" onClick={() => applySuggestion(20)} className="px-3 py-1 bg-white border border-blue-200 text-blue-700 rounded text-xs hover:bg-blue-50 transition">
                                             Tăng trưởng 20%
                                         </button>
+                                        {suggestions.suggestions.revenue > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const margin = suggestions.suggestions.profit / suggestions.suggestions.revenue
+                                                    const currentRevenue = parseNumber(formData.revenueTarget)
+                                                    if (currentRevenue > 0) {
+                                                        const newProfit = Math.round(currentRevenue * margin)
+                                                        setFormData(prev => ({
+                                                            ...prev,
+                                                            profitTarget: new Intl.NumberFormat('vi-VN').format(newProfit)
+                                                        }))
+                                                    } else {
+                                                        alert("Vui lòng nhập Doanh thu mục tiêu trước!")
+                                                    }
+                                                }}
+                                                className="px-3 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded text-xs hover:bg-emerald-100 transition"
+                                            >
+                                                Áp dụng Margin thực tế ({(suggestions.suggestions.profit / suggestions.suggestions.revenue * 100).toFixed(1)}%)
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             )}
