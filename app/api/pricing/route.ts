@@ -87,15 +87,33 @@ export async function GET(req: NextRequest) {
             }
         })
 
+        // Fetch platform adjustment expenses (last 30 days)
+        const platformExpenses = await prisma.expense.findMany({
+            where: {
+                date: { gte: thirtyDaysAgo },
+                category: 'Platform'
+            }
+        })
+
         // Calculate average fees by platform
         const calculateEffectiveRate = (orders: any[], platform: string) => {
             const platformOrders = orders.filter(o => o.platform === platform && o.revenue > 0)
-            if (platformOrders.length === 0) return null
 
+            // Calculate total revenue from orders
             const totalRevenue = platformOrders.reduce((sum, o) => sum + o.revenue, 0)
-            const totalFee = platformOrders.reduce((sum, o) => sum + o.platformFee, 0)
+            if (totalRevenue === 0) return null
 
-            return totalFee / totalRevenue
+            // Calculate total direct fees from orders
+            const totalOrderFees = platformOrders.reduce((sum, o) => sum + o.platformFee, 0)
+
+            // Calculate total adjustment fees from expenses
+            // Subcategory mapping: Shopee -> 'Shopee', TikTok -> 'TikTok Shop'
+            const expenseSubcategory = platform === 'Shopee' ? 'Shopee' : 'TikTok Shop'
+            const totalAdjustmentFees = platformExpenses
+                .filter(e => e.subcategory === expenseSubcategory)
+                .reduce((sum, e) => sum + e.amount, 0)
+
+            return (totalOrderFees + totalAdjustmentFees) / totalRevenue
         }
 
         const avgShopeeFee = calculateEffectiveRate(orders, 'Shopee') || (FALLBACK_FEES.Shopee.serviceFeeRate + FALLBACK_FEES.Shopee.paymentFeeRate + FALLBACK_FEES.Shopee.taxRate + (FALLBACK_FEES.Shopee.fixedFee / 500000))
@@ -193,14 +211,32 @@ export async function POST(req: NextRequest) {
             where: { date: { gte: thirtyDaysAgo } }
         })
 
+        // Fetch platform adjustment expenses (last 30 days)
+        const platformExpenses = await prisma.expense.findMany({
+            where: {
+                date: { gte: thirtyDaysAgo },
+                category: 'Platform'
+            }
+        })
+
         const calculateEffectiveRate = (orders: any[], platform: string) => {
             const platformOrders = orders.filter(o => o.platform === platform && o.revenue > 0)
-            if (platformOrders.length === 0) return null
 
+            // Calculate total revenue from orders
             const totalRevenue = platformOrders.reduce((sum, o) => sum + o.revenue, 0)
-            const totalFee = platformOrders.reduce((sum, o) => sum + o.platformFee, 0)
+            if (totalRevenue === 0) return null
 
-            return totalFee / totalRevenue
+            // Calculate total direct fees from orders
+            const totalOrderFees = platformOrders.reduce((sum, o) => sum + o.platformFee, 0)
+
+            // Calculate total adjustment fees from expenses
+            // Subcategory mapping: Shopee -> 'Shopee', TikTok -> 'TikTok Shop'
+            const expenseSubcategory = platform === 'Shopee' ? 'Shopee' : 'TikTok Shop'
+            const totalAdjustmentFees = platformExpenses
+                .filter(e => e.subcategory === expenseSubcategory)
+                .reduce((sum, e) => sum + e.amount, 0)
+
+            return (totalOrderFees + totalAdjustmentFees) / totalRevenue
         }
 
         const shopeeRate = calculateEffectiveRate(recentOrders, 'Shopee') || (FALLBACK_FEES.Shopee.serviceFeeRate + FALLBACK_FEES.Shopee.paymentFeeRate + FALLBACK_FEES.Shopee.taxRate + (FALLBACK_FEES.Shopee.fixedFee / 500000))
