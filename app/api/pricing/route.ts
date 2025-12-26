@@ -88,19 +88,18 @@ export async function GET(req: NextRequest) {
         })
 
         // Calculate average fees by platform
-        // Calculate average fees by platform using the helper and fallback
-        const shopeeRates = calculateRates(orders, 'Shopee') || FALLBACK_FEES.Shopee
-        const tiktokRates = calculateRates(orders, 'TikTok') || FALLBACK_FEES.TikTok
+        const calculateEffectiveRate = (orders: any[], platform: string) => {
+            const platformOrders = orders.filter(o => o.platform === platform && o.revenue > 0)
+            if (platformOrders.length === 0) return null
 
-        // Calculate total fee rate from the rates object
-        const avgShopeeFee = (shopeeRates as ShopeeFees).serviceFeeRate +
-            (shopeeRates as ShopeeFees).paymentFeeRate +
-            (shopeeRates as ShopeeFees).taxRate +
-            ((shopeeRates as ShopeeFees).fixedFee / 500000) // Estimate fixed fee % based on 500k AOV
+            const totalRevenue = platformOrders.reduce((sum, o) => sum + o.revenue, 0)
+            const totalFee = platformOrders.reduce((sum, o) => sum + o.platformFee, 0)
 
-        const avgTikTokFee = (tiktokRates as TikTokFees).commissionRate +
-            (tiktokRates as TikTokFees).paymentFeeRate +
-            (tiktokRates as TikTokFees).taxRate
+            return totalFee / totalRevenue
+        }
+
+        const avgShopeeFee = calculateEffectiveRate(orders, 'Shopee') || (FALLBACK_FEES.Shopee.serviceFeeRate + FALLBACK_FEES.Shopee.paymentFeeRate + FALLBACK_FEES.Shopee.taxRate + (FALLBACK_FEES.Shopee.fixedFee / 500000))
+        const avgTikTokFee = calculateEffectiveRate(orders, 'TikTok') || (FALLBACK_FEES.TikTok.commissionRate + FALLBACK_FEES.TikTok.paymentFeeRate + FALLBACK_FEES.TikTok.taxRate)
 
         // Calculate average shipping (when seller pays)
         const ordersWithShipping = orders.filter(o => o.shippingFee > 0)
@@ -194,8 +193,18 @@ export async function POST(req: NextRequest) {
             where: { date: { gte: thirtyDaysAgo } }
         })
 
-        const shopeeRates = calculateRates(recentOrders, 'Shopee') || FALLBACK_FEES.Shopee
-        const tiktokRates = calculateRates(recentOrders, 'TikTok') || FALLBACK_FEES.TikTok
+        const calculateEffectiveRate = (orders: any[], platform: string) => {
+            const platformOrders = orders.filter(o => o.platform === platform && o.revenue > 0)
+            if (platformOrders.length === 0) return null
+
+            const totalRevenue = platformOrders.reduce((sum, o) => sum + o.revenue, 0)
+            const totalFee = platformOrders.reduce((sum, o) => sum + o.platformFee, 0)
+
+            return totalFee / totalRevenue
+        }
+
+        const shopeeRate = calculateEffectiveRate(recentOrders, 'Shopee') || (FALLBACK_FEES.Shopee.serviceFeeRate + FALLBACK_FEES.Shopee.paymentFeeRate + FALLBACK_FEES.Shopee.taxRate + (FALLBACK_FEES.Shopee.fixedFee / 500000))
+        const tiktokRate = calculateEffectiveRate(recentOrders, 'TikTok') || (FALLBACK_FEES.TikTok.commissionRate + FALLBACK_FEES.TikTok.paymentFeeRate + FALLBACK_FEES.TikTok.taxRate)
 
         // Calculate scenarios for each platform
         const scenarios: any = {}
@@ -204,34 +213,12 @@ export async function POST(req: NextRequest) {
         for (const platform of platforms || ['Shopee', 'TikTok']) {
             let breakdownItems: any[] = []
             let totalFee = 0
+            const feeRate = platform === 'Shopee' ? shopeeRate : tiktokRate
 
-            if (platform === 'Shopee') {
-                const fees = shopeeRates as ShopeeFees
-                const serviceFee = recommendedPrice * fees.serviceFeeRate
-                const paymentFee = recommendedPrice * fees.paymentFeeRate
-                const fixedFee = fees.fixedFee
-                const taxFee = recommendedPrice * fees.taxRate
-
-                breakdownItems = [
-                    { name: 'Phí dịch vụ', rate: fees.serviceFeeRate, amount: serviceFee },
-                    { name: 'Phí thanh toán', rate: fees.paymentFeeRate, amount: paymentFee },
-                    { name: 'Phí cố định', rate: null, amount: fixedFee },
-                    { name: 'Thuế', rate: fees.taxRate, amount: taxFee }
-                ]
-                totalFee = serviceFee + paymentFee + fixedFee + taxFee
-            } else {
-                const fees = tiktokRates as TikTokFees
-                const commissionFee = recommendedPrice * fees.commissionRate
-                const paymentFee = recommendedPrice * fees.paymentFeeRate
-                const taxFee = recommendedPrice * fees.taxRate
-
-                breakdownItems = [
-                    { name: 'Commission', rate: fees.commissionRate, amount: commissionFee },
-                    { name: 'Phí thanh toán', rate: fees.paymentFeeRate, amount: paymentFee },
-                    { name: 'Thuế', rate: fees.taxRate, amount: taxFee }
-                ]
-                totalFee = commissionFee + paymentFee + taxFee
-            }
+            totalFee = recommendedPrice * feeRate
+            breakdownItems = [
+                { name: 'Phí sàn trung bình', rate: feeRate, amount: totalFee }
+            ]
 
             const netPayout = recommendedPrice - totalFee - shipping
             const netProfit = netPayout - productionCost
@@ -241,7 +228,7 @@ export async function POST(req: NextRequest) {
                 revenue: recommendedPrice,
                 feeBreakdown: breakdownItems,
                 totalFee,
-                totalFeeRate: recommendedPrice > 0 ? (totalFee / recommendedPrice) * 100 : 0,
+                totalFeeRate: feeRate * 100,
                 shipping,
                 netPayout,
                 productionCost,
@@ -258,15 +245,8 @@ export async function POST(req: NextRequest) {
             for (const platform of platforms || ['Shopee', 'TikTok']) {
                 let totalFee = 0
 
-                if (platform === 'Shopee') {
-                    const fees = shopeeRates as ShopeeFees
-                    totalFee = (price * fees.serviceFeeRate) + (price * fees.paymentFeeRate) +
-                        fees.fixedFee + (price * fees.taxRate)
-                } else {
-                    const fees = tiktokRates as TikTokFees
-                    totalFee = (price * fees.commissionRate) + (price * fees.paymentFeeRate) +
-                        (price * fees.taxRate)
-                }
+                const feeRate = platform === 'Shopee' ? shopeeRate : tiktokRate
+                totalFee = price * feeRate
 
                 const netPayout = price - totalFee - shipping
                 const netProfit = netPayout - productionCost
